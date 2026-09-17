@@ -1,0 +1,364 @@
+{
+  "seuils": {
+    "vigilance": 0.1,
+    "alerte": 0.2,
+    "variation_part_detracteurs": 0.05
+  },
+  "derive_entrees_courant": [
+    {
+      "Variable": "Total Charges",
+      "PSI": 0.0482,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Total Revenue",
+      "PSI": 0.0443,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Monthly Charge",
+      "PSI": 0.0414,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Tenure in Months",
+      "PSI": 0.0396,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Total Long Distance Charges",
+      "PSI": 0.0385,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "nb_services",
+      "PSI": 0.0357,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Internet Type",
+      "PSI": 0.0313,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "tranche_anciennete",
+      "PSI": 0.0301,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Online Security",
+      "PSI": 0.0294,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "revenu_par_mois",
+      "PSI": 0.029,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Offer",
+      "PSI": 0.023,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "charge_par_service",
+      "PSI": 0.0179,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Paperless Billing",
+      "PSI": 0.0172,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Streaming Movies",
+      "PSI": 0.0134,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Streaming TV",
+      "PSI": 0.0134,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Payment Method",
+      "PSI": 0.008,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Multiple Lines",
+      "PSI": 0.0072,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Streaming Music",
+      "PSI": 0.0048,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "a_parraine",
+      "PSI": 0.0046,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Contract",
+      "PSI": 0.0046,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Avg Monthly GB Download",
+      "PSI": 0.004,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Avg Monthly Long Distance Charges",
+      "PSI": 0.0038,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Number of Referrals",
+      "PSI": 0.0025,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Premium Tech Support",
+      "PSI": 0.0025,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Device Protection Plan",
+      "PSI": 0.0024,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Phone Service",
+      "PSI": 0.0016,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Internet Service",
+      "PSI": 0.0014,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "a_frais_supplementaires",
+      "PSI": 0.0012,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "a_recu_offre",
+      "PSI": 0.0008,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Online Backup",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "a_eu_remboursement",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Unlimited Data",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Total Refunds",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Total Extra Data Charges",
+      "PSI": 0.0,
+      "Statut": "stable"
+    }
+  ],
+  "psi_predictions_courant": 0.0306,
+  "derive_entrees_mois_simule": [
+    {
+      "Variable": "Monthly Charge",
+      "PSI": 1.3813,
+      "Statut": "ALERTE"
+    },
+    {
+      "Variable": "charge_par_service",
+      "PSI": 0.649,
+      "Statut": "ALERTE"
+    },
+    {
+      "Variable": "Total Charges",
+      "PSI": 0.0482,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Contract",
+      "PSI": 0.0475,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Total Revenue",
+      "PSI": 0.0443,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Tenure in Months",
+      "PSI": 0.0396,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Total Long Distance Charges",
+      "PSI": 0.0385,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "nb_services",
+      "PSI": 0.0357,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "tranche_anciennete",
+      "PSI": 0.0301,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Online Security",
+      "PSI": 0.0294,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "revenu_par_mois",
+      "PSI": 0.029,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Offer",
+      "PSI": 0.023,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Paperless Billing",
+      "PSI": 0.0172,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Streaming Movies",
+      "PSI": 0.0134,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Streaming TV",
+      "PSI": 0.0134,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Internet Type",
+      "PSI": 0.0128,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Payment Method",
+      "PSI": 0.008,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Multiple Lines",
+      "PSI": 0.0072,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Streaming Music",
+      "PSI": 0.0048,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "a_parraine",
+      "PSI": 0.0046,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Avg Monthly GB Download",
+      "PSI": 0.004,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Avg Monthly Long Distance Charges",
+      "PSI": 0.0038,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Number of Referrals",
+      "PSI": 0.0025,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Premium Tech Support",
+      "PSI": 0.0025,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Device Protection Plan",
+      "PSI": 0.0024,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Phone Service",
+      "PSI": 0.0016,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Internet Service",
+      "PSI": 0.0014,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "a_frais_supplementaires",
+      "PSI": 0.0012,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "a_recu_offre",
+      "PSI": 0.0008,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Online Backup",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "a_eu_remboursement",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Unlimited Data",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Total Refunds",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
+      "Variable": "Total Extra Data Charges",
+      "PSI": 0.0,
+      "Statut": "stable"
+    }
+  ],
+  "psi_predictions_mois_simule": 0.0604,
+  "part_detracteurs_predits": {
+    "reference": 0.3333,
+    "courant": 0.3101,
+    "mois_simule": 0.3656
+  },
+  "variables_en_alerte_mois_simule": [
+    "Monthly Charge",
+    "charge_par_service"
+  ],
+  "reentrainement_declenche_mois_simule": true,
+  "scenario_simule": "tarif +12 %, 15 % des contrats basculés en mensuel, 10 % migrés vers la fibre"
+}

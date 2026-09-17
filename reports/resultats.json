@@ -1,0 +1,1798 @@
+{
+  "seed": 42,
+  "qualite": {
+    "lignes": 7043,
+    "colonnes": 51,
+    "manquants": {
+      "Churn Category": 5174,
+      "Churn Reason": 5174,
+      "Offer": 3877,
+      "Internet Type": 1526
+    },
+    "doublons_id": 0,
+    "doublons_lignes": 0,
+    "aberrantes": {
+      "Tenure in Months": 0,
+      "Monthly Charge": 0,
+      "Total Charges": 0,
+      "Total Revenue": 21,
+      "Avg Monthly GB Download": 362
+    },
+    "incoherence_facturation": 2,
+    "anciennete_zero": 0,
+    "constantes": [
+      "Country",
+      "State"
+    ]
+  },
+  "registre_fuites": {
+    "cible": [
+      "Satisfaction Score"
+    ],
+    "fuite_consequence": [
+      "Churn Label",
+      "Churn Value",
+      "Customer Status"
+    ],
+    "fuite_disponibilite": [
+      "Churn Category",
+      "Churn Reason"
+    ],
+    "fuite_modele_amont": [
+      "Churn Score",
+      "CLTV"
+    ],
+    "techniques": [
+      "Customer ID",
+      "Count",
+      "Quarter",
+      "Country",
+      "State",
+      "ID",
+      "Lat Long"
+    ],
+    "audit_seulement": [
+      "Gender",
+      "Age",
+      "Under 30",
+      "Senior Citizen",
+      "Married",
+      "Dependents",
+      "Number of Dependents",
+      "City",
+      "Zip Code",
+      "Latitude",
+      "Longitude",
+      "Population"
+    ]
+  },
+  "arbitrage_des_3": {
+    "n_extremes": 4378,
+    "n_ambigus": 2665,
+    "exactitude_sur_extremes": 0.8013,
+    "part_3_vers_detracteur": 0.2788,
+    "part_3_vers_promoteur": 0.7212,
+    "destination_des_3": "Passif",
+    "nps": {
+      "M1": -42.0,
+      "M2": -4.1,
+      "M3": 21.3
+    },
+    "distributions": {
+      "M1": {
+        "Detracteur": 0.5828,
+        "Passif": 0.254,
+        "Promoteur": 0.1631
+      },
+      "M2": {
+        "Detracteur": 0.2045,
+        "Passif": 0.6324,
+        "Promoteur": 0.1631
+      },
+      "M3": {
+        "Detracteur": 0.2045,
+        "Passif": 0.3784,
+        "Promoteur": 0.4172
+      }
+    }
+  },
+  "analyse_offer": [
+    {
+      "Offer": "Aucune offre",
+      "n": 3877,
+      "taux_depart": 0.271,
+      "satisfaction": 3.238
+    },
+    {
+      "Offer": "Offer A",
+      "n": 520,
+      "taux_depart": 0.067,
+      "satisfaction": 3.546
+    },
+    {
+      "Offer": "Offer B",
+      "n": 824,
+      "taux_depart": 0.123,
+      "satisfaction": 3.478
+    },
+    {
+      "Offer": "Offer C",
+      "n": 415,
+      "taux_depart": 0.229,
+      "satisfaction": 3.316
+    },
+    {
+      "Offer": "Offer D",
+      "n": 602,
+      "taux_depart": 0.267,
+      "satisfaction": 3.246
+    },
+    {
+      "Offer": "Offer E",
+      "n": 805,
+      "taux_depart": 0.529,
+      "satisfaction": 2.81
+    }
+  ],
+  "features": {
+    "numeriques": [
+      "Number of Referrals",
+      "Tenure in Months",
+      "Avg Monthly Long Distance Charges",
+      "Avg Monthly GB Download",
+      "Monthly Charge",
+      "Total Charges",
+      "Total Refunds",
+      "Total Extra Data Charges",
+      "Total Long Distance Charges",
+      "Total Revenue",
+      "nb_services",
+      "charge_par_service",
+      "a_recu_offre",
+      "a_eu_remboursement",
+      "a_frais_supplementaires",
+      "revenu_par_mois",
+      "a_parraine"
+    ],
+    "categorielles": [
+      "Offer",
+      "Phone Service",
+      "Multiple Lines",
+      "Internet Service",
+      "Internet Type",
+      "Online Security",
+      "Online Backup",
+      "Device Protection Plan",
+      "Premium Tech Support",
+      "Streaming TV",
+      "Streaming Movies",
+      "Streaming Music",
+      "Unlimited Data",
+      "Contract",
+      "Paperless Billing",
+      "Payment Method",
+      "tranche_anciennete"
+    ]
+  },
+  "diagnostic_protocole": [
+    {
+      "scenario": "S1_MCAR",
+      "taux_reponse": 0.1516,
+      "satisfaction_moyenne_base": 3.245,
+      "satisfaction_moyenne_repondants": 3.23,
+      "ecart": -0.015,
+      "part_extremes_base": 0.3676,
+      "part_extremes_repondants": 0.397
+    },
+    {
+      "scenario": "S2_MAR",
+      "taux_reponse": 0.1541,
+      "satisfaction_moyenne_base": 3.245,
+      "satisfaction_moyenne_repondants": 3.316,
+      "ecart": 0.071,
+      "part_extremes_base": 0.3676,
+      "part_extremes_repondants": 0.33
+    },
+    {
+      "scenario": "S3_MNAR",
+      "taux_reponse": 0.1533,
+      "satisfaction_moyenne_base": 3.245,
+      "satisfaction_moyenne_repondants": 3.373,
+      "ecart": 0.128,
+      "part_extremes_base": 0.3676,
+      "part_extremes_repondants": 0.7139
+    }
+  ],
+  "grille": [
+    {
+      "exactitude": 0.47380753138075316,
+      "exactitude_equilibree": 0.4706150012485291,
+      "macro_f1": 0.4307877234335904,
+      "kappa_quadratique": 0.2504184695209488,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.7321646962902568,
+          "rappel": 0.5165372447512223,
+          "f1": 0.6057335581787521,
+          "effectif": 3477
+        },
+        "Passif": {
+          "precision": 0.330970942593905,
+          "rappel": 0.3036410923276983,
+          "f1": 0.31671753136656494,
+          "effectif": 1538
+        },
+        "Promoteur": {
+          "precision": 0.2690667929891047,
+          "rappel": 0.5916666666666667,
+          "f1": 0.36991208075545423,
+          "effectif": 960
+        }
+      },
+      "matrice_confusion": [
+        [
+          1796,
+          780,
+          901
+        ],
+        [
+          429,
+          467,
+          642
+        ],
+        [
+          228,
+          164,
+          568
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M1",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.5384100418410042,
+      "exactitude_equilibree": 0.41830911549972516,
+      "macro_f1": 0.41904609299247236,
+      "kappa_quadratique": 0.2501756224167744,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.6822045516863176,
+          "rappel": 0.7155593902789761,
+          "f1": 0.6984839977540708,
+          "effectif": 3477
+        },
+        "Passif": {
+          "precision": 0.32298850574712645,
+          "rappel": 0.36540962288686607,
+          "f1": 0.3428920073215375,
+          "effectif": 1538
+        },
+        "Promoteur": {
+          "precision": 0.28401360544217685,
+          "rappel": 0.17395833333333333,
+          "f1": 0.2157622739018088,
+          "effectif": 960
+        }
+      },
+      "matrice_confusion": [
+        [
+          2488,
+          771,
+          218
+        ],
+        [
+          773,
+          562,
+          203
+        ],
+        [
+          386,
+          407,
+          167
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M1",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.5271966527196653,
+      "exactitude_equilibree": 0.404665197463323,
+      "macro_f1": 0.40403572281337796,
+      "kappa_quadratique": 0.18844599351793923,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.6480446927374302,
+          "rappel": 0.7339660626977279,
+          "f1": 0.6883344571813891,
+          "effectif": 3477
+        },
+        "Passif": {
+          "precision": 0.3182214472537053,
+          "rappel": 0.23732119635890767,
+          "f1": 0.2718808193668529,
+          "effectif": 1538
+        },
+        "Promoteur": {
+          "precision": 0.26179775280898876,
+          "rappel": 0.24270833333333333,
+          "f1": 0.2518918918918919,
+          "effectif": 960
+        }
+      },
+      "matrice_confusion": [
+        [
+          2552,
+          567,
+          358
+        ],
+        [
+          874,
+          365,
+          299
+        ],
+        [
+          512,
+          215,
+          233
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M1",
+      "modele": "boosting_hgb"
+    },
+    {
+      "exactitude": 0.5019246861924687,
+      "exactitude_equilibree": 0.5986422858968354,
+      "macro_f1": 0.49596552956980505,
+      "kappa_quadratique": 0.3663018133992143,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.453125,
+          "rappel": 0.7460580912863071,
+          "f1": 0.563813107557228,
+          "effectif": 1205
+        },
+        "Passif": {
+          "precision": 0.8508158508158508,
+          "rappel": 0.38320209973753283,
+          "f1": 0.5284111473036555,
+          "effectif": 3810
+        },
+        "Promoteur": {
+          "precision": 0.2813186813186813,
+          "rappel": 0.6666666666666666,
+          "f1": 0.3956723338485317,
+          "effectif": 960
+        }
+      },
+      "matrice_confusion": [
+        [
+          899,
+          131,
+          175
+        ],
+        [
+          890,
+          1460,
+          1460
+        ],
+        [
+          195,
+          125,
+          640
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M2",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.6105439330543933,
+      "exactitude_equilibree": 0.461831999669647,
+      "macro_f1": 0.46855525990744673,
+      "kappa_quadratique": 0.3011359846363624,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4943502824858757,
+          "rappel": 0.43568464730290457,
+          "f1": 0.4631671812968681,
+          "effectif": 1205
+        },
+        "Passif": {
+          "precision": 0.6834682080924855,
+          "rappel": 0.7758530183727034,
+          "f1": 0.7267363245236632,
+          "effectif": 3810
+        },
+        "Promoteur": {
+          "precision": 0.28401360544217685,
+          "rappel": 0.17395833333333333,
+          "f1": 0.2157622739018088,
+          "effectif": 960
+        }
+      },
+      "matrice_confusion": [
+        [
+          525,
+          667,
+          13
+        ],
+        [
+          446,
+          2956,
+          408
+        ],
+        [
+          91,
+          702,
+          167
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M2",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.5983263598326359,
+      "exactitude_equilibree": 0.48103611011279196,
+      "macro_f1": 0.48021912483837553,
+      "kappa_quadratique": 0.28028254741734304,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.47372549019607846,
+          "rappel": 0.5012448132780083,
+          "f1": 0.4870967741935484,
+          "effectif": 1205
+        },
+        "Passif": {
+          "precision": 0.7064689337765278,
+          "rappel": 0.7251968503937007,
+          "f1": 0.7157104002072271,
+          "effectif": 3810
+        },
+        "Promoteur": {
+          "precision": 0.26362484157160965,
+          "rappel": 0.21666666666666667,
+          "f1": 0.23785020011435107,
+          "effectif": 960
+        }
+      },
+      "matrice_confusion": [
+        [
+          604,
+          529,
+          72
+        ],
+        [
+          538,
+          2763,
+          509
+        ],
+        [
+          133,
+          619,
+          208
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M2",
+      "modele": "boosting_hgb"
+    },
+    {
+      "exactitude": 0.5338912133891214,
+      "exactitude_equilibree": 0.5696330308553624,
+      "macro_f1": 0.5311372723196636,
+      "kappa_quadratique": 0.41494214675406194,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4549019607843137,
+          "rappel": 0.7701244813278009,
+          "f1": 0.5719568567026194,
+          "effectif": 1205
+        },
+        "Passif": {
+          "precision": 0.5366323907455013,
+          "rappel": 0.3675176056338028,
+          "f1": 0.43625914315569486,
+          "effectif": 2272
+        },
+        "Promoteur": {
+          "precision": 0.5998318621269441,
+          "rappel": 0.5712570056044836,
+          "f1": 0.5851958171006767,
+          "effectif": 2498
+        }
+      },
+      "matrice_confusion": [
+        [
+          928,
+          120,
+          157
+        ],
+        [
+          642,
+          835,
+          795
+        ],
+        [
+          470,
+          601,
+          1427
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M3",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.49556485355648533,
+      "exactitude_equilibree": 0.48484932580120166,
+      "macro_f1": 0.4899324162677268,
+      "kappa_quadratique": 0.37861636284780054,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4943502824858757,
+          "rappel": 0.43568464730290457,
+          "f1": 0.4631671812968681,
+          "effectif": 1205
+        },
+        "Passif": {
+          "precision": 0.42437137330754354,
+          "rappel": 0.4828345070422535,
+          "f1": 0.45171916821082975,
+          "effectif": 2272
+        },
+        "Promoteur": {
+          "precision": 0.5751718213058419,
+          "rappel": 0.5360288230584468,
+          "f1": 0.5549108992954828,
+          "effectif": 2498
+        }
+      },
+      "matrice_confusion": [
+        [
+          525,
+          539,
+          141
+        ],
+        [
+          327,
+          1097,
+          848
+        ],
+        [
+          210,
+          949,
+          1339
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M3",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.4788284518828452,
+      "exactitude_equilibree": 0.48229673603102374,
+      "macro_f1": 0.47747327129416917,
+      "kappa_quadratique": 0.3286267315442579,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4671698113207547,
+          "rappel": 0.5136929460580912,
+          "f1": 0.4893280632411067,
+          "effectif": 1205
+        },
+        "Passif": {
+          "precision": 0.4278892072588348,
+          "rappel": 0.39436619718309857,
+          "f1": 0.4104443426477325,
+          "effectif": 2272
+        },
+        "Promoteur": {
+          "precision": 0.52660406885759,
+          "rappel": 0.5388310648518815,
+          "f1": 0.5326474079936684,
+          "effectif": 2498
+        }
+      },
+      "matrice_confusion": [
+        [
+          619,
+          337,
+          249
+        ],
+        [
+          415,
+          896,
+          961
+        ],
+        [
+          291,
+          861,
+          1346
+        ]
+      ],
+      "scenario": "S1_MCAR",
+      "mapping": "M3",
+      "modele": "boosting_hgb"
+    },
+    {
+      "exactitude": 0.4927828130245049,
+      "exactitude_equilibree": 0.4643976953373266,
+      "macro_f1": 0.43462817475953175,
+      "kappa_quadratique": 0.25510376598341444,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.7175324675324676,
+          "rappel": 0.5695876288659794,
+          "f1": 0.6350574712643678,
+          "effectif": 3492
+        },
+        "Passif": {
+          "precision": 0.32421875,
+          "rappel": 0.2785234899328859,
+          "f1": 0.2996389891696751,
+          "effectif": 1490
+        },
+        "Promoteur": {
+          "precision": 0.27911857292759706,
+          "rappel": 0.5450819672131147,
+          "f1": 0.3691880638445524,
+          "effectif": 976
+        }
+      },
+      "matrice_confusion": [
+        [
+          1989,
+          701,
+          802
+        ],
+        [
+          503,
+          415,
+          572
+        ],
+        [
+          280,
+          164,
+          532
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M1",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.5525344075193018,
+      "exactitude_equilibree": 0.41707742904360434,
+      "macro_f1": 0.41717166840917946,
+      "kappa_quadratique": 0.22923605053087115,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.673155737704918,
+          "rappel": 0.7525773195876289,
+          "f1": 0.7106544077879935,
+          "effectif": 3492
+        },
+        "Passif": {
+          "precision": 0.33161290322580644,
+          "rappel": 0.34496644295302015,
+          "f1": 0.3381578947368421,
+          "effectif": 1490
+        },
+        "Promoteur": {
+          "precision": 0.2976190476190476,
+          "rappel": 0.15368852459016394,
+          "f1": 0.20270270270270271,
+          "effectif": 976
+        }
+      },
+      "matrice_confusion": [
+        [
+          2628,
+          677,
+          187
+        ],
+        [
+          809,
+          514,
+          167
+        ],
+        [
+          467,
+          359,
+          150
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M1",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.5352467270896274,
+      "exactitude_equilibree": 0.3976454682726595,
+      "macro_f1": 0.39779064818585047,
+      "kappa_quadratique": 0.18309769687715038,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.6526159186709646,
+          "rappel": 0.7537227949599083,
+          "f1": 0.6995348837209302,
+          "effectif": 3492
+        },
+        "Passif": {
+          "precision": 0.3128679562657696,
+          "rappel": 0.24966442953020135,
+          "f1": 0.2777155655095185,
+          "effectif": 1490
+        },
+        "Promoteur": {
+          "precision": 0.2513586956521739,
+          "rappel": 0.18954918032786885,
+          "f1": 0.2161214953271028,
+          "effectif": 976
+        }
+      },
+      "matrice_confusion": [
+        [
+          2632,
+          546,
+          314
+        ],
+        [
+          881,
+          372,
+          237
+        ],
+        [
+          520,
+          271,
+          185
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M1",
+      "modele": "boosting_hgb"
+    },
+    {
+      "exactitude": 0.5011748909029876,
+      "exactitude_equilibree": 0.5920102764732554,
+      "macro_f1": 0.492950793999678,
+      "kappa_quadratique": 0.375483612205709,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4429766622633201,
+          "rappel": 0.801593625498008,
+          "f1": 0.5706182643221781,
+          "effectif": 1255
+        },
+        "Passif": {
+          "precision": 0.833732057416268,
+          "rappel": 0.3740273678561846,
+          "f1": 0.5163919244304501,
+          "effectif": 3727
+        },
+        "Promoteur": {
+          "precision": 0.29081885856079404,
+          "rappel": 0.6004098360655737,
+          "f1": 0.3918421932464059,
+          "effectif": 976
+        }
+      },
+      "matrice_confusion": [
+        [
+          1006,
+          116,
+          133
+        ],
+        [
+          1037,
+          1394,
+          1296
+        ],
+        [
+          228,
+          162,
+          586
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M2",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.6040617656931856,
+      "exactitude_equilibree": 0.4675133220514001,
+      "macro_f1": 0.46799313248240654,
+      "kappa_quadratique": 0.30297566964645184,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4792482380579483,
+          "rappel": 0.48764940239043825,
+          "f1": 0.4834123222748815,
+          "effectif": 1255
+        },
+        "Passif": {
+          "precision": 0.679195594924587,
+          "rappel": 0.7612020391735981,
+          "f1": 0.7178643724696356,
+          "effectif": 3727
+        },
+        "Promoteur": {
+          "precision": 0.2976190476190476,
+          "rappel": 0.15368852459016394,
+          "f1": 0.20270270270270271,
+          "effectif": 976
+        }
+      },
+      "matrice_confusion": [
+        [
+          612,
+          627,
+          16
+        ],
+        [
+          552,
+          2837,
+          338
+        ],
+        [
+          113,
+          713,
+          150
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M2",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.595166163141994,
+      "exactitude_equilibree": 0.4715417885697903,
+      "macro_f1": 0.47086190905344033,
+      "kappa_quadratique": 0.2787456217306553,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.47245283018867923,
+          "rappel": 0.49880478087649405,
+          "f1": 0.48527131782945737,
+          "effectif": 1255
+        },
+        "Passif": {
+          "precision": 0.6891790107958825,
+          "rappel": 0.7365173061443521,
+          "f1": 0.7120622568093385,
+          "effectif": 3727
+        },
+        "Promoteur": {
+          "precision": 0.2692307692307692,
+          "rappel": 0.17930327868852458,
+          "f1": 0.21525215252152521,
+          "effectif": 976
+        }
+      },
+      "matrice_confusion": [
+        [
+          626,
+          568,
+          61
+        ],
+        [
+          568,
+          2745,
+          414
+        ],
+        [
+          131,
+          670,
+          175
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M2",
+      "modele": "boosting_hgb"
+    },
+    {
+      "exactitude": 0.5248405505203089,
+      "exactitude_equilibree": 0.5665103321864055,
+      "macro_f1": 0.521930671644319,
+      "kappa_quadratique": 0.4085553946779694,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4422743055555556,
+          "rappel": 0.8119521912350598,
+          "f1": 0.572632762011801,
+          "effectif": 1255
+        },
+        "Passif": {
+          "precision": 0.5295302013422819,
+          "rappel": 0.3527045149754135,
+          "f1": 0.4233968339146767,
+          "effectif": 2237
+        },
+        "Promoteur": {
+          "precision": 0.6095194085027726,
+          "rappel": 0.5348742903487429,
+          "f1": 0.5697624190064795,
+          "effectif": 2466
+        }
+      },
+      "matrice_confusion": [
+        [
+          1019,
+          116,
+          120
+        ],
+        [
+          723,
+          789,
+          725
+        ],
+        [
+          562,
+          585,
+          1319
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M3",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.48439073514602216,
+      "exactitude_equilibree": 0.48492993881572666,
+      "macro_f1": 0.48522822635059315,
+      "kappa_quadratique": 0.3764975174865791,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4792482380579483,
+          "rappel": 0.48764940239043825,
+          "f1": 0.4834123222748815,
+          "effectif": 1255
+        },
+        "Passif": {
+          "precision": 0.41263799010277885,
+          "rappel": 0.4845775592311131,
+          "f1": 0.4457236842105263,
+          "effectif": 2237
+        },
+        "Promoteur": {
+          "precision": 0.5793573515092503,
+          "rappel": 0.48256285482562855,
+          "f1": 0.5265486725663717,
+          "effectif": 2466
+        }
+      },
+      "matrice_confusion": [
+        [
+          612,
+          528,
+          115
+        ],
+        [
+          404,
+          1084,
+          749
+        ],
+        [
+          261,
+          1015,
+          1190
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M3",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.4780127559583753,
+      "exactitude_equilibree": 0.48185807418250665,
+      "macro_f1": 0.4782188903733757,
+      "kappa_quadratique": 0.3224667768269498,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4686588921282799,
+          "rappel": 0.5123505976095617,
+          "f1": 0.4895317853064332,
+          "effectif": 1255
+        },
+        "Passif": {
+          "precision": 0.42870159453302964,
+          "rappel": 0.42065265981224853,
+          "f1": 0.4246389891696751,
+          "effectif": 2237
+        },
+        "Promoteur": {
+          "precision": 0.5286491007946466,
+          "rappel": 0.5125709651257097,
+          "f1": 0.5204858966440189,
+          "effectif": 2466
+        }
+      },
+      "matrice_confusion": [
+        [
+          643,
+          355,
+          257
+        ],
+        [
+          426,
+          941,
+          870
+        ],
+        [
+          303,
+          899,
+          1264
+        ]
+      ],
+      "scenario": "S2_MAR",
+      "mapping": "M3",
+      "modele": "boosting_hgb"
+    },
+    {
+      "exactitude": 0.4563139359382861,
+      "exactitude_equilibree": 0.4829942382598477,
+      "macro_f1": 0.41068064630656087,
+      "kappa_quadratique": 0.23149432131701786,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.76414686825054,
+          "rappel": 0.4816226517832834,
+          "f1": 0.5908483633934536,
+          "effectif": 3673
+        },
+        "Passif": {
+          "precision": 0.3261955745895789,
+          "rappel": 0.2938906752411576,
+          "f1": 0.3092016238159675,
+          "effectif": 1555
+        },
+        "Promoteur": {
+          "precision": 0.22029372496662217,
+          "rappel": 0.673469387755102,
+          "f1": 0.3319919517102616,
+          "effectif": 735
+        }
+      },
+      "matrice_confusion": [
+        [
+          1769,
+          875,
+          1029
+        ],
+        [
+          375,
+          457,
+          723
+        ],
+        [
+          171,
+          69,
+          495
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M1",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.4930404158980379,
+      "exactitude_equilibree": 0.4431477506306664,
+      "macro_f1": 0.42019424164341257,
+      "kappa_quadratique": 0.24401538533097533,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.7346221441124781,
+          "rappel": 0.5690171521916689,
+          "f1": 0.6413010125805462,
+          "effectif": 3673
+        },
+        "Passif": {
+          "precision": 0.30700778642936594,
+          "rappel": 0.35498392282958197,
+          "f1": 0.32925738144944827,
+          "effectif": 1555
+        },
+        "Promoteur": {
+          "precision": 0.22575757575757577,
+          "rappel": 0.4054421768707483,
+          "f1": 0.2900243309002433,
+          "effectif": 735
+        }
+      },
+      "matrice_confusion": [
+        [
+          2090,
+          1016,
+          567
+        ],
+        [
+          548,
+          552,
+          455
+        ],
+        [
+          207,
+          230,
+          298
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M1",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.46168036223377495,
+      "exactitude_equilibree": 0.468926284521096,
+      "macro_f1": 0.4041414444215525,
+      "kappa_quadratique": 0.219453746889122,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.7438928289992119,
+          "rappel": 0.5140212360468283,
+          "f1": 0.607953630655289,
+          "effectif": 3673
+        },
+        "Passif": {
+          "precision": 0.3237939493049877,
+          "rappel": 0.2546623794212219,
+          "f1": 0.28509719222462204,
+          "effectif": 1555
+        },
+        "Promoteur": {
+          "precision": 0.21298819255222526,
+          "rappel": 0.638095238095238,
+          "f1": 0.3193735103847463,
+          "effectif": 735
+        }
+      },
+      "matrice_confusion": [
+        [
+          1888,
+          744,
+          1041
+        ],
+        [
+          467,
+          396,
+          692
+        ],
+        [
+          183,
+          83,
+          469
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M1",
+      "modele": "boosting_hgb"
+    },
+    {
+      "exactitude": 0.45966795237296665,
+      "exactitude_equilibree": 0.6096066644749315,
+      "macro_f1": 0.45161800041637407,
+      "kappa_quadratique": 0.34243841128285946,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.406163753449862,
+          "rappel": 0.8153277931671283,
+          "f1": 0.5422167638931532,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.9204081632653062,
+          "rappel": 0.3264173703256936,
+          "f1": 0.4819234194122885,
+          "effectif": 4145
+        },
+        "Promoteur": {
+          "precision": 0.21776627856834843,
+          "rappel": 0.6870748299319728,
+          "f1": 0.33071381794368043,
+          "effectif": 735
+        }
+      },
+      "matrice_confusion": [
+        [
+          883,
+          55,
+          145
+        ],
+        [
+          1123,
+          1353,
+          1669
+        ],
+        [
+          168,
+          62,
+          505
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M2",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.5426798591313098,
+      "exactitude_equilibree": 0.526254166908848,
+      "macro_f1": 0.47273477004222325,
+      "kappa_quadratique": 0.346489330013657,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4058402860548272,
+          "rappel": 0.628808864265928,
+          "f1": 0.49329952915610287,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.7612141652613827,
+          "rappel": 0.5445114595898674,
+          "f1": 0.6348804500703235,
+          "effectif": 4145
+        },
+        "Promoteur": {
+          "precision": 0.22575757575757577,
+          "rappel": 0.4054421768707483,
+          "f1": 0.2900243309002433,
+          "effectif": 735
+        }
+      },
+      "matrice_confusion": [
+        [
+          681,
+          369,
+          33
+        ],
+        [
+          899,
+          2257,
+          989
+        ],
+        [
+          98,
+          339,
+          298
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M2",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.46788529263793394,
+      "exactitude_equilibree": 0.5770118297851828,
+      "macro_f1": 0.4480455083778247,
+      "kappa_quadratique": 0.3019064075549882,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.38399237732253455,
+          "rappel": 0.7442289935364728,
+          "f1": 0.5065996228786926,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.879815986198965,
+          "rappel": 0.3691194209891435,
+          "f1": 0.5200543847722637,
+          "effectif": 4145
+        },
+        "Promoteur": {
+          "precision": 0.2136470588235294,
+          "rappel": 0.617687074829932,
+          "f1": 0.3174825174825175,
+          "effectif": 735
+        }
+      },
+      "matrice_confusion": [
+        [
+          806,
+          97,
+          180
+        ],
+        [
+          1124,
+          1530,
+          1491
+        ],
+        [
+          169,
+          112,
+          454
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M2",
+      "modele": "boosting_hgb"
+    },
+    {
+      "exactitude": 0.4979037397283247,
+      "exactitude_equilibree": 0.5559325496266793,
+      "macro_f1": 0.4969874449521811,
+      "kappa_quadratique": 0.36964924072254335,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.3947979563399907,
+          "rappel": 0.7848568790397045,
+          "f1": 0.5253399258343634,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.5831593597773138,
+          "rappel": 0.32355212355212354,
+          "f1": 0.41619071268934693,
+          "effectif": 2590
+        },
+        "Promoteur": {
+          "precision": 0.5398230088495575,
+          "rappel": 0.5593886462882096,
+          "f1": 0.549431696332833,
+          "effectif": 2290
+        }
+      },
+      "matrice_confusion": [
+        [
+          850,
+          93,
+          140
+        ],
+        [
+          800,
+          838,
+          952
+        ],
+        [
+          503,
+          506,
+          1281
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M3",
+      "modele": "baseline_logistique"
+    },
+    {
+      "exactitude": 0.46218346469897703,
+      "exactitude_equilibree": 0.5025362498720106,
+      "macro_f1": 0.44948014853308504,
+      "kappa_quadratique": 0.3676546962903344,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4058402860548272,
+          "rappel": 0.628808864265928,
+          "f1": 0.49329952915610287,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.46272493573264784,
+          "rappel": 0.2084942084942085,
+          "f1": 0.28746340165025286,
+          "effectif": 2590
+        },
+        "Promoteur": {
+          "precision": 0.4923027581783194,
+          "rappel": 0.6703056768558951,
+          "f1": 0.5676775147928994,
+          "effectif": 2290
+        }
+      },
+      "matrice_confusion": [
+        [
+          681,
+          227,
+          175
+        ],
+        [
+          642,
+          540,
+          1408
+        ],
+        [
+          355,
+          400,
+          1535
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M3",
+      "modele": "ordinal_seuils"
+    },
+    {
+      "exactitude": 0.44390407512996816,
+      "exactitude_equilibree": 0.513684386653698,
+      "macro_f1": 0.38724980684450055,
+      "kappa_quadratique": 0.34276598893546373,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.3852065321805956,
+          "rappel": 0.7405355493998154,
+          "f1": 0.5067930489731438,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.5930232558139535,
+          "rappel": 0.039382239382239385,
+          "f1": 0.07385952208544533,
+          "effectif": 2590
+        },
+        "Promoteur": {
+          "precision": 0.469937988676193,
+          "rappel": 0.7611353711790393,
+          "f1": 0.5810968494749125,
+          "effectif": 2290
+        }
+      },
+      "matrice_confusion": [
+        [
+          802,
+          10,
+          271
+        ],
+        [
+          793,
+          102,
+          1695
+        ],
+        [
+          487,
+          60,
+          1743
+        ]
+      ],
+      "scenario": "S3_MNAR",
+      "mapping": "M3",
+      "modele": "boosting_hgb"
+    }
+  ],
+  "diagnostic_fuite": {
+    "exactitude_max_observee": 0.6105439330543933,
+    "seuil_alarme": 0.85,
+    "ecart_arbres_lineaire_S1_M3": -0.0551,
+    "alarme": false
+  },
+  "selection_modele_final": {
+    "critere": "kappa quadratique puis macro-F1, scénario S3_MNAR, mapping M3",
+    "classement": [
+      {
+        "modele": "baseline_logistique",
+        "kappa": 0.3696,
+        "macro_f1": 0.497,
+        "rappel_detracteur": 0.7849
+      },
+      {
+        "modele": "ordinal_seuils",
+        "kappa": 0.3677,
+        "macro_f1": 0.4495,
+        "rappel_detracteur": 0.6288
+      },
+      {
+        "modele": "boosting_hgb",
+        "kappa": 0.3428,
+        "macro_f1": 0.3872,
+        "rappel_detracteur": 0.7405
+      }
+    ],
+    "retenu": "baseline_logistique"
+  },
+  "hyperparametres": {
+    "baseline_logistique": {
+      "meilleurs_params": {
+        "C": 0.038986037025490715
+      },
+      "kappa_cv_interne": 0.5808,
+      "kappa_silencieux_defaut": 0.3696,
+      "kappa_silencieux_regle": 0.3694,
+      "macro_f1_silencieux_defaut": 0.497,
+      "macro_f1_silencieux_regle": 0.4996,
+      "n_configurations": 12,
+      "gain_kappa": -0.0003,
+      "retenu": "version par défaut"
+    },
+    "boosting_hgb": {
+      "meilleurs_params": {
+        "min_samples_leaf": 10.0,
+        "max_leaf_nodes": 15.0,
+        "max_iter": 100.0,
+        "learning_rate": 0.05,
+        "l2_regularization": 0.0
+      },
+      "kappa_cv_interne": 0.6245,
+      "kappa_silencieux_defaut": 0.3428,
+      "kappa_silencieux_regle": 0.3646,
+      "macro_f1_silencieux_defaut": 0.3872,
+      "macro_f1_silencieux_regle": 0.4308,
+      "n_configurations": 20,
+      "gain_kappa": 0.0219,
+      "retenu": "non retenu (famille non finale)"
+    }
+  },
+  "effet_ipw": {
+    "sans_ipw": {
+      "kappa": 0.3696,
+      "macro_f1": 0.497
+    },
+    "avec_ipw": {
+      "kappa": 0.3686,
+      "macro_f1": 0.4986
+    },
+    "retenu": "sans IPW"
+  },
+  "modele_final": {
+    "scenario": "S3_MNAR",
+    "mapping": "M3",
+    "modele": "baseline_logistique",
+    "n_entrainement": 1080,
+    "n_evaluation": 5963,
+    "strategie_decision": "hybride — classe : modèle non calibré (la calibration écrasait la classe Passif) ; P(Détracteur) : modèle calibré, pour le classement des appels",
+    "metriques_retenues": {
+      "exactitude": 0.4979037397283247,
+      "exactitude_equilibree": 0.5559325496266793,
+      "macro_f1": 0.4969874449521811,
+      "kappa_quadratique": 0.36964924072254335,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.3947979563399907,
+          "rappel": 0.7848568790397045,
+          "f1": 0.5253399258343634,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.5831593597773138,
+          "rappel": 0.32355212355212354,
+          "f1": 0.41619071268934693,
+          "effectif": 2590
+        },
+        "Promoteur": {
+          "precision": 0.5398230088495575,
+          "rappel": 0.5593886462882096,
+          "f1": 0.549431696332833,
+          "effectif": 2290
+        }
+      },
+      "matrice_confusion": [
+        [
+          850,
+          93,
+          140
+        ],
+        [
+          800,
+          838,
+          952
+        ],
+        [
+          503,
+          506,
+          1281
+        ]
+      ]
+    },
+    "metriques_calibre": {
+      "exactitude": 0.4449102800603723,
+      "exactitude_equilibree": 0.5175753103743039,
+      "macro_f1": 0.3707625681144804,
+      "kappa_quadratique": 0.3617617246328756,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.39783889980353637,
+          "rappel": 0.7479224376731302,
+          "f1": 0.5193972427059955,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.0,
+          "rappel": 0.0,
+          "f1": 0.0,
+          "effectif": 2590
+        },
+        "Promoteur": {
+          "precision": 0.4693149987267634,
+          "rappel": 0.8048034934497816,
+          "f1": 0.5928904616374457,
+          "effectif": 2290
+        }
+      },
+      "matrice_confusion": [
+        [
+          810,
+          0,
+          273
+        ],
+        [
+          779,
+          0,
+          1811
+        ],
+        [
+          447,
+          0,
+          1843
+        ]
+      ]
+    },
+    "metriques_non_calibre": {
+      "exactitude": 0.4979037397283247,
+      "exactitude_equilibree": 0.5559325496266793,
+      "macro_f1": 0.4969874449521811,
+      "kappa_quadratique": 0.36964924072254335,
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.3947979563399907,
+          "rappel": 0.7848568790397045,
+          "f1": 0.5253399258343634,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.5831593597773138,
+          "rappel": 0.32355212355212354,
+          "f1": 0.41619071268934693,
+          "effectif": 2590
+        },
+        "Promoteur": {
+          "precision": 0.5398230088495575,
+          "rappel": 0.5593886462882096,
+          "f1": 0.549431696332833,
+          "effectif": 2290
+        }
+      },
+      "matrice_confusion": [
+        [
+          850,
+          93,
+          140
+        ],
+        [
+          800,
+          838,
+          952
+        ],
+        [
+          503,
+          506,
+          1281
+        ]
+      ]
+    }
+  },
+  "evaluation_metier": {
+    "precision_at_k": {
+      "k": 500,
+      "detracteurs_captes": 244,
+      "detracteurs_total": 1083,
+      "precision_at_k": 0.488,
+      "rappel_at_k": 0.2253,
+      "taux_de_base": 0.1816,
+      "lift": 2.69
+    },
+    "economie": {
+      "cout_campagne_eur": 6000,
+      "clients_retenus_estimes": 61.0,
+      "gain_brut_eur": 27450,
+      "gain_net_eur": 21450,
+      "gain_net_ciblage_aleatoire_eur": 4215,
+      "gain_apporte_par_le_modele_eur": 17235,
+      "roi": 3.58
+    }
+  },
+  "audit_equite": {
+    "Gender": {
+      "groupes": {
+        "Female": {
+          "effectif": 2939,
+          "detracteurs": 540,
+          "rappel_detracteur": 0.8019
+        },
+        "Male": {
+          "effectif": 3024,
+          "detracteurs": 543,
+          "rappel_detracteur": 0.768
+        }
+      },
+      "ecart_max": 0.0339
+    },
+    "Senior Citizen": {
+      "groupes": {
+        "No": {
+          "effectif": 5019,
+          "detracteurs": 816,
+          "rappel_detracteur": 0.75
+        },
+        "Yes": {
+          "effectif": 944,
+          "detracteurs": 267,
+          "rappel_detracteur": 0.8914
+        }
+      },
+      "ecart_max": 0.1414
+    },
+    "Married": {
+      "groupes": {
+        "No": {
+          "effectif": 3110,
+          "detracteurs": 697,
+          "rappel_detracteur": 0.7948
+        },
+        "Yes": {
+          "effectif": 2853,
+          "detracteurs": 386,
+          "rappel_detracteur": 0.7668
+        }
+      },
+      "ecart_max": 0.028
+    },
+    "Dependents": {
+      "groupes": {
+        "No": {
+          "effectif": 4568,
+          "detracteurs": 1019,
+          "rappel_detracteur": 0.788
+        },
+        "Yes": {
+          "effectif": 1395,
+          "detracteurs": 64,
+          "rappel_detracteur": 0.7344
+        }
+      },
+      "ecart_max": 0.0536
+    },
+    "tranche_age": {
+      "groupes": {
+        "30-45": {
+          "effectif": 1655,
+          "detracteurs": 271,
+          "rappel_detracteur": 0.7528
+        },
+        "45-60": {
+          "effectif": 1617,
+          "detracteurs": 276,
+          "rappel_detracteur": 0.837
+        },
+        "60+": {
+          "effectif": 1397,
+          "detracteurs": 350,
+          "rappel_detracteur": 0.86
+        },
+        "<30": {
+          "effectif": 1294,
+          "detracteurs": 186,
+          "rappel_detracteur": 0.6129
+        }
+      },
+      "ecart_max": 0.2471
+    }
+  },
+  "shap": {
+    "methode": "coefficients logistiques (features standardisées)",
+    "importance_detracteur": {
+      "Number of Referrals": 1.2619,
+      "Contract_Two Year": 1.1165,
+      "Tenure in Months": 1.0316,
+      "Contract_Month-to-Month": 0.9594,
+      "Monthly Charge": 0.8907,
+      "tranche_anciennete_6-12m": 0.817,
+      "a_parraine": 0.5691,
+      "Offer_Offer D": 0.4942,
+      "tranche_anciennete_0-6m": 0.4862,
+      "Offer_Offer E": 0.4845,
+      "tranche_anciennete_4a+": 0.47,
+      "Online Security_No": 0.4347,
+      "Phone Service_Yes": 0.4319,
+      "Online Security_Yes": 0.357,
+      "Phone Service_No": 0.3541,
+      "Offer_Offer C": 0.3416,
+      "tranche_anciennete_1-2a": 0.254,
+      "Total Charges": 0.2513,
+      "Streaming Music_Yes": 0.2398,
+      "Internet Type_Cable": 0.2156
+    },
+    "classes": [
+      "Detracteur",
+      "Passif",
+      "Promoteur"
+    ]
+  },
+  "duree_s": 611.7
+}

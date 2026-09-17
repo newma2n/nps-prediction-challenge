@@ -1,0 +1,12 @@
+{
+  "n_entrainement": 1080,
+  "n_evaluation": 5963,
+  "n_features": 62,
+  "version": "9.0.0",
+  "statut": "indisponible",
+  "erreur": "TabPFNHuggingFaceGatedRepoError: HuggingFace authentication error downloading from 'Prior-Labs/tabpfn_3_5'.\nThis model is gated and requires you to accept its terms.\n\nPlease follow these steps:\n1. Visit https://huggingface.co/Prior-Labs/tabpfn_3_5 in your browser and accept the terms of use.\n2. Log in to your Hugging Face account v",
+  "reference_logistique": {
+    "kappa": 0.3696,
+    "duree_inference_s": 0.116
+  }
+}

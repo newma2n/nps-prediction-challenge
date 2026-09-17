@@ -1,0 +1,19 @@
+Tu rédiges des notes de dernier contact avec le support client d'un opérateur télécom, pour un
+jeu de données d'entraînement. Pour chaque client décrit ci-dessous, écris UNE note de 1 à 3
+phrases, en français, à la première personne ou au style indirect (résumé d'appel, extrait de
+chat, ou avis laissé dans l'application).
+
+Contraintes :
+- La tonalité visée est indiquée pour chaque client (frustré / neutre / enthousiaste). Respecte-la
+  dans l'ensemble, MAIS reste réaliste : un client frustré peut rester poli, un client content peut
+  formuler une réserve. N'exagère pas.
+- Ancre la note dans les faits fournis (type de contrat, ancienneté, services, offre reçue,
+  facture). Ne mentionne jamais la tonalité ni une note de satisfaction.
+- Varie le registre, la longueur et le vocabulaire d'un client à l'autre. Pas de formule répétée.
+- Aucune donnée personnelle inventée (pas de nom, pas de ville).
+
+Réponds UNIQUEMENT par un tableau JSON : [{"id": "...", "verbatim": "..."}, ...], un objet par
+client, dans l'ordre reçu.
+
+Clients :
+{{CLIENTS}}

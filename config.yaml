@@ -1,0 +1,83 @@
+# Configuration unique du projet — aucune constante codée en dur dans les scripts.
+
+seed: 42
+
+chemins:
+  brut: data/raw
+  interim: data/interim
+  traite: data/processed
+  modeles: models
+  rapports: reports
+
+# --- Registre de fuites (étape 8) ---------------------------------------------
+# Chaque colonne exclue l'est pour une raison nommée.
+colonnes:
+  cible: "Satisfaction Score"
+
+  # Fuite de conséquence : la colonne est un effet de la cible.
+  fuite_consequence:
+    - "Churn Label"
+    - "Churn Value"
+    - "Customer Status"
+
+  # Fuite de disponibilité : la colonne n'existe que pour les clients partis.
+  # Sa seule présence trahit la réponse.
+  fuite_disponibilite:
+    - "Churn Category"
+    - "Churn Reason"
+
+  # Fuite de modèle amont : la colonne est produite par un autre modèle (IBM SPSS).
+  fuite_modele_amont:
+    - "Churn Score"
+    - "CLTV"
+
+  # Identifiants et colonnes constantes.
+  techniques:
+    - "Customer ID"
+    - "Count"
+    - "Quarter"
+    - "Country"
+    - "State"
+    - "ID"
+    - "Lat Long"
+
+  # Démographie et géographie : EXCLUES des variables explicatives,
+  # conservées uniquement comme dimensions d'audit d'équité (étape 31).
+  audit_seulement:
+    - "Gender"
+    - "Age"
+    - "Under 30"
+    - "Senior Citizen"
+    - "Married"
+    - "Dependents"
+    - "Number of Dependents"
+    - "City"
+    - "Zip Code"
+    - "Latitude"
+    - "Longitude"
+    - "Population"
+
+# --- Construction de la cible (étape 10) --------------------------------------
+cible:
+  # M1 : mapping baseline de l'énoncé
+  m1: {1: Detracteur, 2: Detracteur, 3: Detracteur, 4: Passif, 5: Promoteur}
+  # M2 : recentré
+  m2: {1: Detracteur, 2: Detracteur, 3: Passif, 4: Passif, 5: Promoteur}
+  # M3 : les 1-2 et 4-5 sont fixes ; les 3 sont arbitrés empiriquement (méthode Elero)
+  m3_extremes: {1: Detracteur, 2: Detracteur, 4: Promoteur, 5: Promoteur}
+
+# --- Protocole de validation 15/85 (étape 16) ---------------------------------
+protocole:
+  taux_reponse: 0.15
+  scenarios: [S1_MCAR, S2_MAR, S3_MNAR]
+  # Force du biais MNAR : poids appliqué à la satisfaction dans la propension
+  force_mnar: 1.2
+  force_mar: 0.8
+
+# --- Évaluation métier (étape 27) ---------------------------------------------
+metier:
+  # Capacité d'appel mensuelle de l'équipe rétention
+  k_appels: 500
+  cout_appel_eur: 12
+  valeur_client_retenu_eur: 450
+  taux_succes_appel: 0.25

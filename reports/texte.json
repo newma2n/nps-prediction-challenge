@@ -1,0 +1,46 @@
+{
+  "source_verbatims": "gabarit_stochastique_seed",
+  "n_verbatims": 7043,
+  "concordance_tonalite_classe": 0.8322,
+  "plafond_theorique": 0.8333,
+  "tabulaire_seul": {
+    "kappa": 0.3696,
+    "macro_f1": 0.497,
+    "rappel_detracteur": 0.7849,
+    "rappel_passif": 0.3236
+  },
+  "texte_seul": {
+    "kappa": 0.3814,
+    "macro_f1": 0.4813,
+    "rappel_detracteur": 0.6223,
+    "rappel_passif": 0.3154
+  },
+  "fusion_tardive": {
+    "poids_texte": 0.2,
+    "grille_poids_cv": {
+      "0.0": 0.6216,
+      "0.1": 0.6218,
+      "0.2": 0.627,
+      "0.3": 0.6197,
+      "0.4": 0.5983,
+      "0.5": 0.5701,
+      "0.6": 0.5059,
+      "0.7": 0.4153,
+      "0.8": 0.3369,
+      "0.9": 0.2255,
+      "1.0": 0.1606
+    },
+    "kappa": 0.3917,
+    "macro_f1": 0.3813,
+    "rappel_detracteur": 0.7858,
+    "rappel_passif": 0.0
+  },
+  "fusion_precoce_svd20": {
+    "kappa": 0.4182,
+    "macro_f1": 0.5136,
+    "rappel_detracteur": 0.7996,
+    "rappel_passif": 0.3151
+  },
+  "gain_kappa_fusion_tardive": 0.022,
+  "lecture": "Le texte encode la classe par construction (tonalité tirée de la classe, bruit 25 %). Tout gain est un artefact du protocole de génération : il valide la chaîne, pas la valeur de vrais verbatims."
+}
