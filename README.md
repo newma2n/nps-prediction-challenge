@@ -16,8 +16,11 @@ Les documents de cadrage sont dans `docs/` : compréhension du problème, plan d
 
 ```bash
 pip install -r requirements.txt
-python -m src.run        # pipeline complet : données → cible → modèles → évaluation (~3 min)
-python -m src.rapports   # génère les 19 rapports et 17 figures dans reports/
+python -m src.run        # pipeline complet : données → cible → modèles → hyperparamètres → évaluation (~10 min)
+python -m src.verbatims  # verbatims synthétiques (API Anthropic si clé dans .env, sinon générateur local seedé)
+python -m src.texte      # modèle texte et fusion
+python -m src.monitoring # dérive PSI et déclencheur
+python -m src.rapports   # génère les 21 rapports et 18 figures dans reports/
 python -m streamlit run app/app.py --server.port 8501
 ```
 
@@ -25,14 +28,15 @@ Vérifier :
 
 ```bash
 python -m pytest tests -q         # 17 tests : jointure, fuites, cible, protocole, métriques, robustesse de l'app
-python -m src.monitoring         # dérive PSI et déclencheur de réentraînement
 python -m src.writeup            # livrable/write_up.pdf
 python scripts/captures.py       # captures des 10 pages (application lancée)
 ```
 
 Puis ouvrir http://localhost:8501.
 
-Tout est déterministe (seed dans `config.yaml`). Aucune clé d'API n'est nécessaire.
+Tout est déterministe (seed dans `config.yaml`). Aucune clé d'API n'est nécessaire — elle n'ajoute que la
+génération des verbatims par Claude (voir `.env.example`). TabPFN requiert en plus l'acceptation des conditions
+du dépôt Hugging Face `Prior-Labs/tabpfn_3_5` et `huggingface-cli login`.
 
 ## Arborescence
 
@@ -46,12 +50,21 @@ src/
   protocol.py          protocole 15/85 — MCAR / MAR / MNAR, poids IPW
   models.py            baseline, ordinal à seuils, HistGradientBoosting, calibration
   evaluate.py          métriques par classe, précision@K, économie, équité
-  run.py               orchestrateur
+  run.py               orchestrateur (+ hyperparamètres, IPW, calibration vérifiée)
+  verbatims.py         verbatims synthétiques — chemin API Anthropic + générateur local seedé
+  texte.py             TF-IDF, fusion tardive et précoce, mesure du gain
+  tabpfn_eval.py       modèle de fondation tabulaire (bonus)
+  monitoring.py        PSI par variable et sur les prédictions, mois simulé, déclencheur
   rapports.py          génération de l'étude (Markdown + figures)
-app/app.py             application Streamlit pour l'équipe rétention
-models/                modèle final sérialisé (pipeline complet)
-reports/               l'étude, ordonnée par phase CRISP-DM
-docs/                  cadrage, plan, état de l'art
+  writeup.py           write-up 3–6 pages → PDF
+app/app.py             application Streamlit, 10 pages, adressables par ?page=
+scripts/captures.py    captures d'écran des 10 pages (Selenium)
+tests/                 17 tests d'invariants (pytest)
+prompts/               prompt versionné des verbatims
+models/                modèle final et modèle texte sérialisés (pipelines complets)
+reports/               l'étude, ordonnée par phase CRISP-DM ; captures/ ; *.json des résultats
+livrable/              write_up.pdf (+ .md et .html sources)
+docs/                  cadrage, plan en 38 étapes avec état d'avancement, état de l'art
 ```
 
 ## Ce que ce projet fait de particulier

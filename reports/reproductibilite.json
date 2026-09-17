@@ -1,0 +1,57 @@
+{
+  "retour": 0,
+  "duree_s": 291,
+  "sortie_fin": "nu par la mesure : baseline_logistique\n[4b/7] Hyperparamètres\n   baseline_logistique  kappa défaut 0.370 -> réglé 0.369\n   boosting_hgb         kappa défaut 0.343 -> réglé 0.365\n   effet IPW : kappa 0.370 -> 0.369 (sans IPW)\n   stratégie de décision : hybride\n[5/7] Audit d'équité\n[6/7] Interprétabilité SHAP\n[7/7] Persistance\n\nTerminé en 288.1 s — reports/resultats.json, models/modele_final.joblib\n",
+  "erreur_fin": "",
+  "comparaison": [
+    {
+      "indicateur": "NPS M1",
+      "original": -42.0,
+      "copie_vierge": -42.0,
+      "identique": true
+    },
+    {
+      "indicateur": "NPS M3",
+      "original": 21.3,
+      "copie_vierge": 21.3,
+      "identique": true
+    },
+    {
+      "indicateur": "part 3 -> detracteur",
+      "original": 0.2788,
+      "copie_vierge": 0.2788,
+      "identique": true
+    },
+    {
+      "indicateur": "modele retenu",
+      "original": "baseline_logistique",
+      "copie_vierge": "baseline_logistique",
+      "identique": true
+    },
+    {
+      "indicateur": "kappa final",
+      "original": 0.36964924072254335,
+      "copie_vierge": 0.36964924072254335,
+      "identique": true
+    },
+    {
+      "indicateur": "macro-F1 final",
+      "original": 0.4969874449521811,
+      "copie_vierge": 0.4969874449521811,
+      "identique": true
+    },
+    {
+      "indicateur": "precision@K",
+      "original": 0.488,
+      "copie_vierge": 0.488,
+      "identique": true
+    },
+    {
+      "indicateur": "ecart equite age",
+      "original": 0.2471,
+      "copie_vierge": 0.2471,
+      "identique": true
+    }
+  ],
+  "reproductible": true
+}

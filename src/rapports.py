@@ -830,6 +830,31 @@ cette seule expérience.
     return dec
 
 
+def _section_reproductibilite() -> str:
+    p = REP / "reproductibilite.json"
+    if not p.exists():
+        return "\n*Test non exécuté.*\n"
+    r = json.load(open(p, encoding="utf-8"))
+    if not r.get("comparaison"):
+        return f"\nLe pipeline a échoué sur la copie vierge (code retour {r['retour']}) :\n\n```\n{r.get('erreur_fin','')[-400:]}\n```\n"
+    t = pd.DataFrame(r["comparaison"])
+    t["identique"] = t["identique"].map({True: "✅", False: "❌"})
+    t.columns = ["Indicateur", "Original", "Copie vierge", "Identique"]
+    verdict = ("**Reproductible à l'identique**" if r["reproductible"]
+               else "**Écarts constatés** — à investiguer avant remise")
+    return f"""
+Protocole : copie de `src/`, `prompts/`, `config.yaml` et `data/raw/` seuls dans un répertoire
+vierge, exécution de `python -m src.run`, comparaison des indicateurs clés avec ceux publiés ici.
+Durée : {r['duree_s']} s.
+
+{_tab(t)}
+
+{verdict}. Les 17 tests de `tests/test_pipeline.py` verrouillent en plus les invariants
+(jointure sans perte, exclusion des fuites, construction de la cible, protocole, robustesse de
+l'application aux entrées incomplètes).
+"""
+
+
 def _section_hyperparametres(R: dict) -> str:
     h = R.get("hyperparametres")
     if not h:
@@ -1266,6 +1291,9 @@ décider sur l'âge ou le genre.
 ## Ce qu'on ne peut pas faire avec ces données
 
 Estimer l'effet d'un appel de rétention. Aucun traitement, aucune randomisation. Voir phase 6.
+
+## Reproductibilité — test à blanc depuis une copie vierge
+{_section_reproductibilite()}
 
 ## Décision
 

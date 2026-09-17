@@ -28,6 +28,28 @@
 
 Estimer l'effet d'un appel de rétention. Aucun traitement, aucune randomisation. Voir phase 6.
 
+## Reproductibilité — test à blanc depuis une copie vierge
+
+Protocole : copie de `src/`, `prompts/`, `config.yaml` et `data/raw/` seuls dans un répertoire
+vierge, exécution de `python -m src.run`, comparaison des indicateurs clés avec ceux publiés ici.
+Durée : 291 s.
+
+| Indicateur | Original | Copie vierge | Identique |
+|---|---|---|---|
+| NPS M1 | -42.0 | -42.0 | ✅ |
+| NPS M3 | 21.3 | 21.3 | ✅ |
+| part 3 -> detracteur | 0.2788 | 0.2788 | ✅ |
+| modele retenu | baseline_logistique | baseline_logistique | ✅ |
+| kappa final | 0.36964924072254335 | 0.36964924072254335 | ✅ |
+| macro-F1 final | 0.4969874449521811 | 0.4969874449521811 | ✅ |
+| precision@K | 0.488 | 0.488 | ✅ |
+| ecart equite age | 0.2471 | 0.2471 | ✅ |
+
+**Reproductible à l'identique**. Les 17 tests de `tests/test_pipeline.py` verrouillent en plus les invariants
+(jointure sans perte, exclusion des fuites, construction de la cible, protocole, robustesse de
+l'application aux entrées incomplètes).
+
+
 ## Décision
 
 **Go pour un pilote**, à trois conditions : valider les paramètres économiques avec la rétention ;
