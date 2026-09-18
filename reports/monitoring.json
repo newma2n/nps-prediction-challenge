@@ -156,6 +156,11 @@
       "Statut": "stable"
     },
     {
+      "Variable": "paiement_automatique",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
       "Variable": "a_eu_remboursement",
       "PSI": 0.0,
       "Statut": "stable"
@@ -166,17 +171,17 @@
       "Statut": "stable"
     },
     {
-      "Variable": "Total Refunds",
+      "Variable": "Total Extra Data Charges",
       "PSI": 0.0,
       "Statut": "stable"
     },
     {
-      "Variable": "Total Extra Data Charges",
+      "Variable": "Total Refunds",
       "PSI": 0.0,
       "Statut": "stable"
     }
   ],
-  "psi_predictions_courant": 0.0306,
+  "psi_predictions_courant": 0.0253,
   "derive_entrees_mois_simule": [
     {
       "Variable": "Monthly Charge",
@@ -329,6 +334,11 @@
       "Statut": "stable"
     },
     {
+      "Variable": "paiement_automatique",
+      "PSI": 0.0,
+      "Statut": "stable"
+    },
+    {
       "Variable": "a_eu_remboursement",
       "PSI": 0.0,
       "Statut": "stable"
@@ -339,26 +349,109 @@
       "Statut": "stable"
     },
     {
-      "Variable": "Total Refunds",
+      "Variable": "Total Extra Data Charges",
       "PSI": 0.0,
       "Statut": "stable"
     },
     {
-      "Variable": "Total Extra Data Charges",
+      "Variable": "Total Refunds",
       "PSI": 0.0,
       "Statut": "stable"
     }
   ],
-  "psi_predictions_mois_simule": 0.0604,
+  "psi_predictions_mois_simule": 0.0545,
   "part_detracteurs_predits": {
-    "reference": 0.3333,
-    "courant": 0.3101,
-    "mois_simule": 0.3656
+    "reference": 0.3287,
+    "courant": 0.3138,
+    "mois_simule": 0.3637
   },
   "variables_en_alerte_mois_simule": [
     "Monthly Charge",
     "charge_par_service"
   ],
   "reentrainement_declenche_mois_simule": true,
-  "scenario_simule": "tarif +12 %, 15 % des contrats basculés en mensuel, 10 % migrés vers la fibre"
+  "scenario_simule": "tarif +12 %, 15 % des contrats basculés en mensuel, 10 % migrés vers la fibre",
+  "suivi_nouvelles_reponses": {
+    "reference": {
+      "kappa": 0.3844,
+      "rappel_detracteur": 0.6288
+    },
+    "seuils": {
+      "min_nouveaux_labels": 500,
+      "chute_kappa": 0.05,
+      "chute_rappel_detracteur": 0.1,
+      "echeance_max_mois": 6
+    },
+    "lots": [
+      {
+        "mois": 1,
+        "nouvelles_reponses": 150,
+        "cumul": 150,
+        "kappa_lot": 0.5103,
+        "rappel_detracteur_lot": 0.5833,
+        "kappa_cumul": 0.5103,
+        "rappel_detracteur_cumul": 0.5833,
+        "chute_performance": false,
+        "volume_atteint": false
+      },
+      {
+        "mois": 2,
+        "nouvelles_reponses": 150,
+        "cumul": 300,
+        "kappa_lot": 0.556,
+        "rappel_detracteur_lot": 0.6222,
+        "kappa_cumul": 0.5339,
+        "rappel_detracteur_cumul": 0.6022,
+        "chute_performance": false,
+        "volume_atteint": false
+      },
+      {
+        "mois": 3,
+        "nouvelles_reponses": 150,
+        "cumul": 450,
+        "kappa_lot": 0.5228,
+        "rappel_detracteur_lot": 0.5952,
+        "kappa_cumul": 0.5306,
+        "rappel_detracteur_cumul": 0.6,
+        "chute_performance": false,
+        "volume_atteint": false
+      },
+      {
+        "mois": 4,
+        "nouvelles_reponses": 150,
+        "cumul": 600,
+        "kappa_lot": 0.6001,
+        "rappel_detracteur_lot": 0.6415,
+        "kappa_cumul": 0.5489,
+        "rappel_detracteur_cumul": 0.6117,
+        "chute_performance": false,
+        "volume_atteint": true
+      },
+      {
+        "mois": 5,
+        "nouvelles_reponses": 150,
+        "cumul": 750,
+        "kappa_lot": 0.4514,
+        "rappel_detracteur_lot": 0.4762,
+        "kappa_cumul": 0.5302,
+        "rappel_detracteur_cumul": 0.587,
+        "chute_performance": false,
+        "volume_atteint": true
+      },
+      {
+        "mois": 6,
+        "nouvelles_reponses": 150,
+        "cumul": 900,
+        "kappa_lot": 0.4198,
+        "rappel_detracteur_lot": 0.6087,
+        "kappa_cumul": 0.5129,
+        "rappel_detracteur_cumul": 0.5906,
+        "chute_performance": false,
+        "volume_atteint": true
+      }
+    ],
+    "premier_mois_volume_atteint": 4,
+    "chute_detectee": false,
+    "note": "réponses tirées parmi les silencieux selon la propension S3 (les extrêmes répondent plus) : la performance sur les nouveaux répondants est donc optimiste par rapport à la base — exactement le biais que le monitoring réel subira"
+  }
 }

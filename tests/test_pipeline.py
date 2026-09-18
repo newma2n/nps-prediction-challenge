@@ -2,9 +2,10 @@
 
     python -m pytest tests -q
 
-Ils protègent ce qui, s'il casse silencieusement, invalide toute l'étude : la jointure sans
-perte, l'exclusion des fuites, la construction de la cible, le protocole de non-réponse, la
-règle de publication des métriques et la tolérance de l'application aux entrées incomplètes.
+Ils protègent ce qui, s'il casse silencieusement, invalide toute l'étude : la jointure sans perte,
+l'exclusion des fuites, la construction de la cible, le protocole de non-réponse, le catalogue de
+modèles (chacun s'ajuste, prédit trois classes, se clone), la règle de publication des métriques, la
+sélection sans regarder le test, et la tolérance de l'application aux entrées incomplètes.
 """
 from __future__ import annotations
 
@@ -15,11 +16,13 @@ import joblib
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.base import clone
 
 from src.data import charger_config, charger_tables, colonnes_exclues, joindre, preparer
-from src.evaluate import metriques, precision_at_k
-from src.features import colonnes_modele, construire
-from src.protocol import decouper, diagnostic
+from src.evaluate import metriques, precision_at_k, nps_de, seuils_par_groupe
+from src.features import GROUPES_OPTIONNELS, HYPOTHESES_DERIVEES, colonnes_avec_groupes, colonnes_modele, construire
+from src.models import CATALOGUE, NOMS, SIMPLICITE, construire_modeles, entrainer, espace_recherche
+from src.protocol import decouper, diagnostic, estimer_propension
 from src.target import ORDRE, construire_cibles, nps
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -34,6 +37,18 @@ def cfg():
 def df(cfg):
     d, _ = preparer(cfg)
     return construire(d)
+
+
+@pytest.fixture(scope="session")
+def jeu(df, cfg):
+    """Petit jeu d'entraînement / test (répondants S3, cible M3) pour les tests de modèles."""
+    cibles, _ = construire_cibles(df, cfg, cfg["seed"])
+    num, cat = colonnes_modele(df, cfg)
+    dec = decouper(df, cfg, "S3_MNAR", cfg["seed"])
+    rep = dec["repondants"]
+    y = cibles["M3"].astype(str).values
+    sat = pd.to_numeric(df[cfg["colonnes"]["cible"]]).values.astype(float)
+    return dict(X=df[num + cat], y=y, sat=sat, rep=rep, num=num, cat=cat)
 
 
 # --- Données -------------------------------------------------------------------------
@@ -58,16 +73,30 @@ def test_aucune_colonne_churn_dans_les_features(df, cfg):
     assert interdites.isdisjoint(set(num) | set(cat))
 
 
-def test_demographie_exclue_des_features(df, cfg):
+def test_demographie_et_geographie_exclues_des_features(df, cfg):
     num, cat = colonnes_modele(df, cfg)
-    for c in ("Gender", "Age", "Senior Citizen", "Married", "Dependents", "Zip Code", "Latitude", "Longitude"):
+    for c in ("Gender", "Age", "Senior Citizen", "Married", "Dependents", "Zip Code", "Latitude", "Longitude", "Population"):
         assert c not in num + cat
+
+
+def test_groupes_optionnels_reintegrables_pour_ablation(df, cfg):
+    num, cat = colonnes_avec_groupes(df, cfg, ["demographie", "geographie"])
+    for c in GROUPES_OPTIONNELS["demographie"] + GROUPES_OPTIONNELS["geographie"]:
+        assert c in num + cat
 
 
 def test_fait_fondateur_churn_par_satisfaction(cfg):
     d = joindre(charger_tables(cfg))
     taux = d.groupby("Satisfaction Score")["Churn Value"].mean()
     assert taux[1] == 1.0 and taux[2] == 1.0 and taux[4] == 0.0 and taux[5] == 0.0
+
+
+# --- Features ------------------------------------------------------------------------
+def test_chaque_variable_derivee_a_une_hypothese(df, cfg):
+    num, cat = colonnes_modele(df, cfg)
+    for v in HYPOTHESES_DERIVEES:
+        assert v in num + cat, f"{v} déclarée mais absente des features"
+    assert set(df["paiement_automatique"].unique()) <= {0, 1}
 
 
 # --- Cible ---------------------------------------------------------------------------
@@ -78,7 +107,6 @@ def test_mappings_et_nps(df, cfg):
     assert nps(cibles["M1"]) == pytest.approx(-42.0, abs=0.1)
     assert arb["n_ambigus"] == 2665
     assert 0.0 < arb["part_3_vers_detracteur"] < 1.0
-    # Le modèle d'arbitrage doit séparer les extrêmes sans être irréel (pas de fuite)
     assert 0.70 <= arb["exactitude_sur_extremes"] <= 0.90
 
 
@@ -109,6 +137,39 @@ def test_poids_ipw_normalises(df, cfg):
     assert (dec["poids_ipw"][dec["silencieux"]] == 0).all()
 
 
+def test_propension_estimee_est_positive_et_normalisee(df, cfg, jeu):
+    w = estimer_propension(df, jeu["rep"], jeu["num"], jeu["cat"], cfg["seed"])
+    assert (w[jeu["rep"]] > 0).all() and (w[~jeu["rep"]] == 0).all()
+    assert w[jeu["rep"]].mean() == pytest.approx(1.0)
+
+
+# --- Catalogue de modèles ------------------------------------------------------------
+def test_catalogue_complet_et_justifie():
+    assert len(CATALOGUE) == 15
+    familles = {m["famille"] for m in CATALOGUE}
+    assert len(familles) == 7
+    for m in CATALOGUE:
+        assert m["pourquoi"] and m["hypothese"] and m["reference"], m["nom"]
+        assert m["nom"] in SIMPLICITE
+    assert {m["formulation"] for m in CATALOGUE} == {"classification nominale", "classification ordinale", "régression 1-5 puis seuillage"}
+
+
+@pytest.mark.parametrize("nom", NOMS)
+def test_chaque_modele_s_ajuste_predit_trois_classes_et_se_clone(jeu, cfg, nom):
+    X, y, sat, rep = jeu["X"], jeu["y"], jeu["sat"], jeu["rep"]
+    idx = np.where(rep)[0][:400]
+    m = construire_modeles(jeu["num"], jeu["cat"], cfg["seed"], [nom])[nom]
+    m2 = clone(m)  # RandomizedSearchCV et la validation croisée exigent des estimateurs clonables
+    entrainer(m2, X.iloc[idx], y[idx], y_continu=sat[idx])
+    p = m2.predict_proba(X.iloc[:20])
+    assert p.shape == (20, 3) and np.allclose(p.sum(axis=1), 1.0, atol=1e-6)
+    assert set(np.asarray(m2.predict(X.iloc[:20])).astype(str)) <= set(ORDRE)
+    esp = espace_recherche(nom)
+    if esp:
+        for k in esp:
+            assert k.startswith("modele__")
+
+
 # --- Évaluation ----------------------------------------------------------------------
 def test_metriques_toujours_avec_detail_par_classe():
     y = np.array(ORDRE * 10); p = np.array(ORDRE * 10)
@@ -117,11 +178,28 @@ def test_metriques_toujours_avec_detail_par_classe():
     assert m["kappa_quadratique"] == pytest.approx(1.0)
 
 
+def test_metriques_avec_probabilites():
+    y = np.array(["Detracteur"] * 30 + ["Passif"] * 30 + ["Promoteur"] * 30)
+    proba = np.tile(np.eye(3), (30, 1)); proba = np.vstack([proba[::3], proba[1::3], proba[2::3]])
+    pred = np.array(ORDRE)[proba.argmax(1)]
+    m = metriques(y, pred, proba, ORDRE)
+    assert m["auc_detracteur"] == pytest.approx(1.0) and m["brier_detracteur"] == pytest.approx(0.0) and 0 <= m["ece_detracteur"] <= 1
+
+
 def test_precision_at_k_borne_et_lift():
     y = np.array(["Detracteur"] * 20 + ["Promoteur"] * 80)
     proba = np.r_[np.linspace(0.9, 0.6, 20), np.linspace(0.5, 0.0, 80)]
     r = precision_at_k(y, proba, 20)
     assert r["precision_at_k"] == 1.0 and r["lift"] == pytest.approx(5.0)
+
+
+def test_nps_et_seuils_par_groupe():
+    assert nps_de(["Promoteur"] * 6 + ["Detracteur"] * 2 + ["Passif"] * 2) == pytest.approx(40.0)
+    y = np.array(["Detracteur"] * 20 + ["Promoteur"] * 20); proba = np.r_[np.linspace(0.9, 0.5, 20), np.linspace(0.6, 0.0, 20)]
+    g = np.array(["A"] * 20 + ["B"] * 20)
+    y2 = np.array(["Detracteur"] * 10 + ["Promoteur"] * 10 + ["Detracteur"] * 10 + ["Promoteur"] * 10)
+    r = seuils_par_groupe(y2, proba, g, rappel_cible=0.8)
+    assert set(r) == {"A", "B"} and all(v["rappel"] >= 0.8 for v in r.values())
 
 
 # --- Artefacts et application --------------------------------------------------------
@@ -136,9 +214,21 @@ def test_modele_tolere_entrees_vides_et_modalites_inconnues():
 
 
 @pytest.mark.skipif(not (RACINE / "reports" / "resultats.json").exists(), reason="pipeline non exécuté")
-def test_resultats_pas_de_fuite_et_trois_classes_predites():
+def test_resultats_pas_de_fuite_trois_classes_et_selection_sans_test():
     R = json.load(open(RACINE / "reports" / "resultats.json", encoding="utf-8"))
     assert R["diagnostic_fuite"]["alarme"] is False
     assert R["diagnostic_fuite"]["exactitude_max_observee"] < 0.85
     for c in ORDRE:
         assert R["modele_final"]["metriques_retenues"]["par_classe"][c]["rappel"] > 0.05
+    sel = R["selection_modele_final"]
+    # Le modèle retenu est le plus simple des candidats dans la marge de parcimonie — jamais choisi sur les silencieux.
+    marge = [c for c in sel["classement"] if c["dans_la_marge"]]
+    assert sel["retenu"] == min(marge, key=lambda c: (SIMPLICITE[c["modele"]], -c["kappa_cv_ipw"]))["modele"]
+    assert len(sel["classement"]) == len(NOMS)
+
+
+@pytest.mark.skipif(not (RACINE / "data" / "processed" / "clients_scores.parquet").exists(), reason="pipeline non exécuté")
+def test_scores_clients_complets():
+    s = pd.read_parquet(RACINE / "data" / "processed" / "clients_scores.parquet")
+    assert len(s) == 7043 and s["proba_detracteur"].between(0, 1).all()
+    assert set(s["prediction"].unique()) <= set(ORDRE) and s["levier_recommande"].notna().all()

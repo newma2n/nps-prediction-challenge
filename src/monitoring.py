@@ -1,5 +1,6 @@
-"""Étape 36 — monitoring implémenté : dérive des entrées (PSI), dérive des prédictions,
-et démonstration du déclencheur sur un mois simulé.
+"""Étape 36 — monitoring implémenté (§ 4.9 de l'énoncé) : dérive des entrées (PSI), dérive des
+prédictions, performance sur les nouvelles réponses d'enquête, et déclencheurs de réentraînement
+(seuil de dérive, chute de performance, volume minimal de nouveaux labels, échéance).
 
     python -m src.monitoring
 
@@ -82,9 +83,46 @@ def main():
     part_det = {"reference": float((p_ref > 0.5).mean()), "courant": float((p_cur > 0.5).mean()),
                 "mois_simule": float((p_sim > 0.5).mean())}
 
-    # Déclencheur
+    # Déclencheur de dérive
     alertes_sim = d_sim[d_sim["Statut"] == "ALERTE"]["Variable"].tolist()
     declenche = bool(alertes_sim) or psi_pred_sim > SEUIL_ALERTE or abs(part_det["mois_simule"] - part_det["reference"]) > 0.05
+
+    # 4. Performance sur les NOUVELLES réponses d'enquête. Chaque mois, ~150 clients silencieux
+    #    répondent (tirés selon la même propension biaisée S3 : les extrêmes répondent plus). On
+    #    mesure kappa et rappel Détracteur sur chaque lot et en cumul, et on déclenche si la
+    #    performance chute ou si le volume cumulé justifie un réentraînement.
+    from sklearn.metrics import cohen_kappa_score, recall_score
+    from .protocol import propensions
+    from .target import ORDRE
+    R = json.load(open(RACINE / "reports" / "resultats.json", encoding="utf-8"))
+    kappa_ref = R["modele_final"]["metriques_retenues"]["kappa_quadratique"]
+    rappel_ref = R["modele_final"]["metriques_retenues"]["par_classe"]["Detracteur"]["rappel"]
+    p_rep = propensions(cur, cfg, "S3_MNAR", cfg["seed"])
+    p_rep = p_rep / p_rep.sum()
+    idx_tous = rng.choice(len(cur), size=150 * 6, replace=False, p=p_rep)
+    pred_cur = np.asarray(art["pipeline_decision"].predict(cur[colonnes])).astype(str)
+    y_cur = cur["cible_M3"].astype(str).values
+    lots, cumul_idx = [], []
+    MIN_LABELS, CHUTE_KAPPA, CHUTE_RAPPEL = 500, 0.05, 0.10
+    for mois in range(6):
+        idx = idx_tous[mois * 150:(mois + 1) * 150]
+        cumul_idx = list(cumul_idx) + list(idx)
+        k_lot = cohen_kappa_score(y_cur[idx], pred_cur[idx], weights="quadratic", labels=ORDRE)
+        r_lot = recall_score(y_cur[idx], pred_cur[idx], labels=["Detracteur"], average="macro", zero_division=0)
+        k_cum = cohen_kappa_score(y_cur[cumul_idx], pred_cur[cumul_idx], weights="quadratic", labels=ORDRE)
+        r_cum = recall_score(y_cur[cumul_idx], pred_cur[cumul_idx], labels=["Detracteur"], average="macro", zero_division=0)
+        lots.append({"mois": mois + 1, "nouvelles_reponses": len(idx), "cumul": len(cumul_idx),
+                     "kappa_lot": round(float(k_lot), 4), "rappel_detracteur_lot": round(float(r_lot), 4),
+                     "kappa_cumul": round(float(k_cum), 4), "rappel_detracteur_cumul": round(float(r_cum), 4),
+                     "chute_performance": bool(k_cum < kappa_ref - CHUTE_KAPPA or r_cum < rappel_ref - CHUTE_RAPPEL),
+                     "volume_atteint": len(cumul_idx) >= MIN_LABELS})
+    suivi = {"reference": {"kappa": round(kappa_ref, 4), "rappel_detracteur": round(rappel_ref, 4)},
+             "seuils": {"min_nouveaux_labels": MIN_LABELS, "chute_kappa": CHUTE_KAPPA, "chute_rappel_detracteur": CHUTE_RAPPEL,
+                        "echeance_max_mois": 6},
+             "lots": lots,
+             "premier_mois_volume_atteint": next((l["mois"] for l in lots if l["volume_atteint"]), None),
+             "chute_detectee": any(l["chute_performance"] for l in lots),
+             "note": "réponses tirées parmi les silencieux selon la propension S3 (les extrêmes répondent plus) : la performance sur les nouveaux répondants est donc optimiste par rapport à la base — exactement le biais que le monitoring réel subira"}
 
     # Figure
     fig, axes = plt.subplots(1, 2, figsize=(11, 3.6))
@@ -110,12 +148,14 @@ def main():
         "variables_en_alerte_mois_simule": alertes_sim,
         "reentrainement_declenche_mois_simule": declenche,
         "scenario_simule": "tarif +12 %, 15 % des contrats basculés en mensuel, 10 % migrés vers la fibre",
+        "suivi_nouvelles_reponses": suivi,
     }
     (RACINE / "reports").mkdir(exist_ok=True)
     with open(RACINE / "reports" / "monitoring.json", "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False, indent=2)
     print(f"PSI prédictions courant={psi_pred:.3f} · mois simulé={psi_pred_sim:.3f} · "
-          f"alertes simulées={alertes_sim} · réentraînement déclenché={declenche}")
+          f"alertes simulées={alertes_sim} · réentraînement déclenché={declenche} · "
+          f"volume de labels atteint au mois {suivi['premier_mois_volume_atteint']} · chute détectée={suivi['chute_detectee']}")
     return res
 
 

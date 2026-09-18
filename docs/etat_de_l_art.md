@@ -162,16 +162,21 @@ quel, mais désormais **justifié par citation**, et on ajoute une remarque : no
 
 # 6. Quatre corrections concrètes à nos choix techniques
 
-### a) `HistGradientBoostingClassifier` suffit — pas besoin de LightGBM
+### a) Un catalogue aligné sur la littérature — pas un seul boosting
 
-[E] testent neuf algorithmes ; **l'Histogram Gradient Boosting arrive en tête** (exactitude
-0,774 en multiclasse, meilleur F1 Détracteur à 0,842), avec la variance la plus faible en
-validation croisée. Or il est **livré dans scikit-learn** (`sklearn.ensemble.HistGradientBoostingClassifier`),
-déjà installé.
+[E] testent neuf algorithmes (AB, DT, GB, HGB, KNN, LR, RF, ANN, SVM) ; **l'Histogram Gradient
+Boosting arrive en tête** (exactitude 0,774 en multiclasse, meilleur F1 Détracteur à 0,842), avec la
+variance la plus faible en validation croisée. [C] en comparent six (KNN, RF, AdaBoost, LR, XGBoost,
+SVM), [M] six (LR, LDA, KNN, CART, NB, SVM), [K] cinq (DT, RF, GBT, LR, MLP). L'énoncé cite
+explicitement XGBoost, LightGBM, CatBoost, mord, les ensembles calibrés et les modèles de fondation.
 
-**Décision.** HGB devient le modèle de boosting principal. LightGBM et CatBoost restent des
-comparaisons de second rang si le temps le permet — plus une dépendance bloquante à installer
-à l'étape 0.
+**Décision (révisée à la livraison).** Le catalogue couvre l'union de ces listes : **quinze modèles en
+sept familles** — logistique, logistique ordinale (mord), ridge et HGB à seuils, arbre, forêt, HGB,
+LightGBM, XGBoost, CatBoost, AdaBoost, KNN, SVM, MLP, Naive Bayes — chacun avec l'hypothèse qu'il
+teste (`src/models.py`), plus TabICL comme modèle de fondation. HGB n'est plus « le » boosting : il
+est l'un des cinq, et l'écart entre implémentations mesure la variance d'implémentation. Un modèle
+qui ne peut pas être justifié n'entre pas ; un modèle justifié entre même s'il est attendu faible
+(le MLP, le Naive Bayes) — c'est le résultat qui tranche, pas l'a priori.
 
 ### b) Ne jamais publier une métrique globale sans le détail par classe
 

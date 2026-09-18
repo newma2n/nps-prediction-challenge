@@ -1,0 +1,67 @@
+{
+  "n_entrainement": 1080,
+  "n_evaluation": 5963,
+  "n_features": 63,
+  "materiel": "CPU",
+  "modeles": [
+    {
+      "nom": "TabICL",
+      "duree_fit_s": 5.56,
+      "duree_inference_s": 206.48,
+      "latence_par_client_ms": 34.627,
+      "metriques": {
+        "kappa": 0.3791,
+        "macro_f1": 0.377,
+        "exactitude_equilibree": 0.5291,
+        "rappel_detracteur": 0.7895,
+        "rappel_passif": 0.0,
+        "rappel_promoteur": 0.7978,
+        "precision_detracteur": 0.4071,
+        "auc_detracteur": 0.8429,
+        "ap_detracteur": 0.502,
+        "brier_detracteur": 0.1595,
+        "ece_detracteur": 0.154
+      },
+      "par_classe": {
+        "Detracteur": {
+          "precision": 0.4071,
+          "rappel": 0.7895,
+          "f1": 0.5372,
+          "effectif": 1083
+        },
+        "Passif": {
+          "precision": 0.0,
+          "rappel": 0.0,
+          "f1": 0.0,
+          "effectif": 2590
+        },
+        "Promoteur": {
+          "precision": 0.4729,
+          "rappel": 0.7978,
+          "f1": 0.5939,
+          "effectif": 2290
+        }
+      },
+      "statut": "ok",
+      "version": "?"
+    },
+    {
+      "nom": "TabPFN",
+      "statut": "indisponible",
+      "erreur": "dépôt Hugging Face à accès contrôlé (gated) : l'acceptation des conditions d'utilisation et `huggingface-cli login` sont requis pour télécharger les poids — OSError: [WinError 10038] Une opération a été tentée sur autre chose qu’un socket",
+      "version": "9.0.0"
+    }
+  ],
+  "reference": {
+    "modele": "logistique_ordinale",
+    "kappa": 0.3844,
+    "macro_f1": 0.4902,
+    "rappel_detracteur": 0.6288,
+    "duree_inference_s": 0.176
+  },
+  "reference_boosting": {
+    "modele": "lightgbm",
+    "kappa": 0.3749,
+    "macro_f1": 0.4639
+  }
+}

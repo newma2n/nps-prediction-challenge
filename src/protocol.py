@@ -107,3 +107,23 @@ def diagnostic(df: pd.DataFrame, cfg: dict, decoupe: dict) -> dict:
         "part_extremes_base": round(float(sat.isin([1, 2, 5]).mean()), 4),
         "part_extremes_repondants": round(float(sat[rep].isin([1, 2, 5]).mean()), 4),
     }
+
+
+def estimer_propension(df: pd.DataFrame, repondants: np.ndarray, num: list[str], cat: list[str], seed: int) -> np.ndarray:
+    """Propension à répondre ESTIMÉE à partir des seules covariables observables — ce qu'un
+    praticien peut faire en production (il sait qui a répondu, il connaît les covariables de
+    tous). Hypothèse MAR : la propension vraie sous S3 dépend aussi de la satisfaction, que cette
+    estimation ne voit pas ; l'écart mesure la limite de l'IPW face au MNAR.
+
+    Retourne des poids 1/p̂ normalisés à moyenne 1 sur les répondants (0 ailleurs).
+    """
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import Pipeline
+    from .features import pipeline_preparation
+    modele = Pipeline([("preparation", pipeline_preparation(num, cat, normaliser=True)),
+                       ("modele", LogisticRegression(max_iter=2000, C=0.5, random_state=seed))])
+    modele.fit(df[num + cat], repondants.astype(int))
+    p_hat = np.clip(modele.predict_proba(df[num + cat])[:, 1], 0.02, 0.98)
+    poids = np.where(repondants, 1.0 / p_hat, 0.0)
+    poids[repondants] /= poids[repondants].mean()
+    return poids

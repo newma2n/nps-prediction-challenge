@@ -19,3 +19,9 @@ __pycache__/
 .idea/
 .DS_Store
 Thumbs.db
+
+# CatBoost (fichiers de travail)
+catboost_info/
+
+# Notebook
+notebooks/.ipynb_checkpoints/

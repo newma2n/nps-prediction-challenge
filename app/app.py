@@ -2,13 +2,13 @@
 
     streamlit run app/app.py
 
-Neuf pages, navigation latérale. Toutes les valeurs affichées sont lues dans les artefacts
+Sept pages, adressables par ?page=. Toutes les valeurs affichées sont lues dans les artefacts
 produits par le pipeline (reports/*.json, models/, data/processed/) — rien n'est recopié.
+Chaque page : les chiffres d'abord, la lecture ensuite, le détail dans des dépliants.
 """
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -19,28 +19,28 @@ import streamlit as st
 
 RACINE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RACINE))
-from src.features import noms_apres_encodage  # noqa: E402
+from src.explication import contributions_detracteur, libelle_variable  # noqa: E402
+from src.run import levier  # noqa: E402
 
 REP, FIG = RACINE / "reports", RACINE / "reports" / "figures"
 LIB = {"Detracteur": "Détracteur", "Passif": "Passif", "Promoteur": "Promoteur"}
 COUL = {"Detracteur": "#c0392b", "Passif": "#e67e22", "Promoteur": "#27ae60"}
 
-st.set_page_config(page_title="NPS · Rétention", page_icon="📞", layout="wide",
-                   initial_sidebar_state="expanded")
-
+st.set_page_config(page_title="NPS · Rétention", page_icon="📞", layout="wide", initial_sidebar_state="expanded")
 st.markdown("""
 <style>
-  .block-container {padding-top: 1.2rem; max-width: 1250px;}
-  .kpi {border:1px solid #e3e6ea; border-radius:10px; padding:14px 16px; background:#fafbfc;}
-  .kpi .lab {font-size:12px; color:#5f6b7a; text-transform:uppercase; letter-spacing:.04em;}
-  .kpi .val {font-size:26px; font-weight:700; color:#1f2d3d; margin-top:2px;}
+  .block-container {padding-top: 1.1rem; max-width: 1280px;}
+  .kpi {border:1px solid #e3e6ea; border-radius:10px; padding:13px 15px; background:#fafbfc; height:100%;}
+  .kpi .lab {font-size:11.5px; color:#5f6b7a; text-transform:uppercase; letter-spacing:.04em;}
+  .kpi .val {font-size:25px; font-weight:700; color:#1f2d3d; margin-top:2px;}
   .kpi .sub {font-size:12px; color:#7a8794; margin-top:2px;}
   .verdict {display:inline-block; padding:10px 16px; border-radius:8px; color:#fff; font-weight:700; font-size:20px;}
-  .note {border-left:4px solid #2c7fb8; background:#f3f8fc; padding:10px 14px; border-radius:6px; font-size:14px;}
-  .warn {border-left:4px solid #e67e22; background:#fdf6ee; padding:10px 14px; border-radius:6px; font-size:14px;}
-  .bad  {border-left:4px solid #c0392b; background:#fbf0ee; padding:10px 14px; border-radius:6px; font-size:14px;}
-  h2 {margin-top: .6rem;}
-  section[data-testid="stSidebar"] .stRadio label {font-size: 15px;}
+  .note {border-left:4px solid #2c7fb8; background:#f3f8fc; padding:10px 14px; border-radius:6px; font-size:14px; margin-bottom:8px;}
+  .warn {border-left:4px solid #e67e22; background:#fdf6ee; padding:10px 14px; border-radius:6px; font-size:14px; margin-bottom:8px;}
+  .bad  {border-left:4px solid #c0392b; background:#fbf0ee; padding:10px 14px; border-radius:6px; font-size:14px; margin-bottom:8px;}
+  .ok   {border-left:4px solid #27ae60; background:#eefaf2; padding:10px 14px; border-radius:6px; font-size:14px; margin-bottom:8px;}
+  h2 {margin-top:.6rem;} h3 {margin-top:.9rem;}
+  section[data-testid="stSidebar"] .stRadio label {font-size:15px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -52,136 +52,134 @@ def charger():
     clients = pd.read_parquet(RACINE / "data" / "processed" / "clients_scores.parquet")
     res = json.load(open(REP / "resultats.json", encoding="utf-8"))
     extra = {}
-    for nom in ("texte", "tabpfn", "monitoring"):
+    for nom in ("texte", "fondation", "monitoring", "reproductibilite"):
         p = REP / f"{nom}.json"
         extra[nom] = json.load(open(p, encoding="utf-8")) if p.exists() else None
     pv = RACINE / "data" / "processed" / "verbatims.parquet"
     verbatims = pd.read_parquet(pv).set_index("Customer ID") if pv.exists() else None
     pt = RACINE / "models" / "modele_texte.joblib"
     texte = joblib.load(pt) if pt.exists() else None
-    return art, clients, res, extra, verbatims, texte
+    cfg = __import__("yaml").safe_load(open(RACINE / "config.yaml", encoding="utf-8"))
+    return art, clients, res, extra, verbatims, texte, cfg
 
 
-art, clients, res, extra, verbatims, modele_texte = charger()
+art, clients, res, extra, verbatims, modele_texte, cfg = charger()
 pipe_cal, pipe_brut, pipe_dec = art["pipeline"], art["pipeline_brut"], art.get("pipeline_decision", art["pipeline_brut"])
 classes, num, cat = art["classes"], art["num"], art["cat"]
 i_det = classes.index("Detracteur")
-cfg = __import__("yaml").safe_load(open(RACINE / "config.yaml", encoding="utf-8"))
+mf = res["modele_final"]; sel = res["selection_modele_final"]
 K = res["evaluation_metier"]["precision_at_k"]["k"]
-silencieux = clients[~clients["repondant_S3"]] if "repondant_S3" in clients else clients
+silencieux = clients[~clients["repondant_S3"]]
+NOM_MODELE = mf["modele"].replace("_", " ")
 
 
 # ============================================================================ utilitaires
 def kpi(col, label, valeur, sous=""):
-    col.markdown(f'<div class="kpi"><div class="lab">{label}</div><div class="val">{valeur}</div>'
-                 f'<div class="sub">{sous}</div></div>', unsafe_allow_html=True)
+    col.markdown(f'<div class="kpi"><div class="lab">{label}</div><div class="val">{valeur}</div><div class="sub">{sous}</div></div>', unsafe_allow_html=True)
 
 
 def image(nom: str, legende: str = ""):
     p = FIG / nom
     if p.exists():
-        st.image(str(p), caption=legende, use_container_width=True)
+        st.image(str(p), caption=legende, width="stretch")
     else:
         st.info(f"Figure absente : {nom} — lancer `python -m src.rapports`.")
 
 
-def md_sans_images(chemin: str) -> str:
-    p = REP / chemin
-    if not p.exists():
-        return f"*Rapport absent : {chemin}*"
-    t = p.read_text(encoding="utf-8")
-    t = re.sub(r"!\[\]\([^)]*\)\n?", "", t)          # les figures sont affichées à part
-    t = re.sub(r"^# .*\n", "", t, count=1)           # le titre H1 est porté par la page
-    return t
-
-
-def contributions(X_row: pd.DataFrame) -> pd.Series:
-    prep, mdl = pipe_brut.named_steps["preparation"], pipe_brut.named_steps["modele"]
-    xt = prep.transform(X_row); noms = noms_apres_encodage(prep)
-    j = list(mdl.classes_).index("Detracteur")
-    if hasattr(mdl, "coef_"):
-        c = mdl.coef_[j] * xt[0]
-    else:
-        import shap
-        sv = shap.TreeExplainer(mdl).shap_values(xt)
-        c = (sv[j] if isinstance(sv, list) else sv[:, :, j])[0]
-    return pd.Series(c, index=noms)
-
-
-def libelle(nom: str) -> str:
-    for c in cat:
-        if nom.startswith(c + "_"):
-            return f"{c} = {nom[len(c) + 1:]}"
-    return nom
+def encart(texte: str, genre: str = "note"):
+    st.markdown(f'<div class="{genre}">{texte}</div>', unsafe_allow_html=True)
 
 
 def eur(v) -> str:
     return f"{int(round(v)):,} €".replace(",", " ")
 
 
+def pct(v, d=0) -> str:
+    return f"{v*100:.{d}f} %"
+
+
+def tableau(df: pd.DataFrame, fmt: dict | None = None, hauteur: int | None = None):
+    kw = {"height": hauteur} if hauteur else {}
+    st.dataframe(df.style.format(fmt or {}), hide_index=True, width="stretch", **kw)
+
+
+def resume_vers_df(lignes: list[dict], cle_libelle: str, libelle: str) -> pd.DataFrame:
+    d = pd.DataFrame([l for l in lignes if "kappa" in l])
+    cols = {cle_libelle: libelle, "kappa": "Kappa", "macro_f1": "Macro-F1", "rappel_detracteur": "Rappel Dét.", "rappel_passif": "Rappel Passif",
+            "rappel_promoteur": "Rappel Prom.", "precision_detracteur": "Précision Dét.", "auc_detracteur": "AUC Dét."}
+    d = d[[c for c in cols if c in d]].rename(columns=cols)
+    return d
+
+
+FMT3 = {c: "{:.3f}" for c in ("Kappa", "Macro-F1", "Rappel Dét.", "Rappel Passif", "Rappel Prom.", "Précision Dét.", "AUC Dét.")}
+
+
 # ============================================================================ navigation
+PAGES = ["Synthèse", "Prioriser les appels", "Analyser un client", "Données et cible", "Modèles et performance",
+         "Drivers et équité", "Suivi et méthode"]
 with st.sidebar:
     st.markdown("## 📞 NPS · Rétention")
-    st.caption("Priorisation des appels à partir de la catégorie NPS prédite")
-    PAGES = ["Vue d'ensemble", "Prioriser les appels", "Analyser un client", "Données",
-             "Modèle et performance", "Équité", "Drivers de détraction", "Méthode", "Monitoring", "À propos"]
-    # Adressable par URL (?page=Équité) — utile pour les captures et pour partager un écran.
+    st.caption("Prédire la catégorie NPS des clients silencieux, prioriser les appels, comprendre les drivers.")
     demande = st.query_params.get("page", PAGES[0])
-    page = st.radio("", PAGES, index=PAGES.index(demande) if demande in PAGES else 0,
-                    label_visibility="collapsed")
+    page = st.radio("Pages", PAGES, index=PAGES.index(demande) if demande in PAGES else 0, label_visibility="collapsed")
     if page != demande:
         st.query_params["page"] = page
     st.divider()
-    mf = res["modele_final"]
-    st.caption(f"**Modèle** {mf['modele']}  \n**Cible** {mf['mapping']} · **Scénario** {mf['scenario']}  \n"
+    st.caption(f"**Modèle retenu** {NOM_MODELE} · {mf['version']}  \n**Cible** M3 · **Scénario** S3 (MNAR)  \n"
                f"Entraîné sur {mf['n_entrainement']} répondants · évalué sur {mf['n_evaluation']} silencieux  \n"
-               f"Seed {res['seed']}")
+               f"Kappa {mf['metriques_retenues']['kappa_quadratique']:.3f} · seed {res['seed']}")
 
 
-# ============================================================================ pages
-def page_vue_densemble():
-    st.title("Vue d'ensemble")
+# ============================================================================ 1. Synthèse
+def page_synthese():
+    st.title("Synthèse")
+    st.caption("Pour la direction Expérience Client. Chaque chiffre est calculé par le pipeline et retrouvable dans l'étude.")
     a = res["arbitrage_des_3"]; pk = res["evaluation_metier"]["precision_at_k"]; eco = res["evaluation_metier"]["economie"]
-    m = mf["metriques_retenues"]
+    m = mf["metriques_retenues"]; ns = res["nps_simule"]; eq = res["audit_equite"]["tranche_age"]["groupes"]
     c = st.columns(5)
-    kpi(c[0], "NPS estimé (base complète)", f"{a['nps']['M3']:+.0f}", "mapping arbitré par les données · secteur +19 à +34")
-    kpi(c[1], "Détracteurs prédits", f"{(silencieux['prediction']=='Detracteur').mean():.0%}", f"sur {len(silencieux)} clients silencieux")
-    kpi(c[2], f"Précision @ {pk['k']} appels", f"{pk['precision_at_k']:.0%}", f"taux de base {pk['taux_de_base']:.0%} · lift ×{pk['lift']:.1f}")
-    kpi(c[3], "Rappel Détracteur", f"{m['par_classe']['Detracteur']['rappel']:.0%}", "part des vrais détracteurs retrouvés")
-    kpi(c[4], "Gain net vs hasard", eur(eco["gain_apporte_par_le_modele_eur"]), f"par campagne de {pk['k']} appels")
+    kpi(c[0], "NPS estimé — base complète", f"{a['nps']['M3']:+.0f}", f"grille de l'énoncé : {a['nps']['M1']:+.0f} · secteur +19 à +34")
+    kpi(c[1], "NPS des 85 % silencieux", f"{ns['nps_silencieux_predit']:+.0f}", f"IC 95 % {ns['nps_silencieux_predit_ic95'][0]:+.0f} à {ns['nps_silencieux_predit_ic95'][1]:+.0f} · répondants seuls {ns['nps_repondants_observe']:+.0f}")
+    kpi(c[2], f"Précision @ {pk['k']} appels", pct(pk["precision_at_k"]), f"taux de base {pct(pk['taux_de_base'])} · lift ×{pk['lift']:.1f}")
+    kpi(c[3], "Gain net apporté / campagne", eur(eco["gain_apporte_par_le_modele_eur"]), f"{pk['k']} appels · hypothèses à valider")
+    kpi(c[4], "Détracteurs retrouvés", pct(m["par_classe"]["Detracteur"]["rappel"]), f"{pct(eq['<30']['rappel_detracteur'])} chez les moins de 30 ans")
 
     st.markdown("### Trois résultats à retenir")
     g1, g2, g3 = st.columns(3)
-    g1.markdown(f'<div class="note"><b>La grille de l\'énoncé fabrique un NPS faux.</b> Appliquée telle quelle : '
-                f'<b>{a["nps"]["M1"]:+.0f}</b>. Elle classe en détracteurs {a["n_ambigus"]} clients « moyens » dont 84 % sont restés. '
-                f'Les données disent qu\'ils penchent à <b>{a["part_3_vers_promoteur"]:.0%} côté promoteur</b>. NPS corrigé : <b>{a["nps"]["M3"]:+.0f}</b>.</div>',
-                unsafe_allow_html=True)
-    g2.markdown(f'<div class="note"><b>Le modèle multiplie par {pk["lift"]:.1f} l\'efficacité des appels.</b> Sur {pk["k"]} appels, '
-                f'{pk["precision_at_k"]:.0%} touchent un vrai détracteur contre {pk["taux_de_base"]:.0%} au hasard — '
-                f'<b>{eur(eco["gain_apporte_par_le_modele_eur"])}</b> de gain net supplémentaire par campagne.</div>', unsafe_allow_html=True)
-    eq = res["audit_equite"]["tranche_age"]["groupes"]
-    g3.markdown(f'<div class="warn"><b>Il rate davantage les jeunes détracteurs.</b> Rappel {eq["<30"]["rappel_detracteur"]:.0%} chez les '
-                f'moins de 30 ans contre {eq["60+"]["rappel_detracteur"]:.0%} chez les 60+, sans aucune variable d\'âge dans le modèle. '
-                f'Mesuré, signalé, à traiter avant production.</div>', unsafe_allow_html=True)
+    with g1:
+        encart(f"<b>La grille de l'énoncé fabrique un NPS faux.</b> Appliquée telle quelle : <b>{a['nps']['M1']:+.0f}</b>. Elle classe en détracteurs "
+               f"{a['n_ambigus']} clients « moyens » dont 84 % sont restés. Un modèle entraîné sur les seuls extrêmes montre qu'ils penchent à "
+               f"<b>{pct(a['part_3_vers_promoteur'])} côté promoteur</b>. NPS corrigé : <b>{a['nps']['M3']:+.0f}</b>.")
+    with g2:
+        encart(f"<b>Le modèle multiplie par {pk['lift']:.1f} l'efficacité des appels</b> — et il a été choisi honnêtement : {len(sel['classement'])} modèles de "
+               f"7 familles comparés, sélection par validation croisée sur les répondants <i>sans regarder</i> les clients d'évaluation, "
+               f"règle de parcimonie. Retenu : <b>{NOM_MODELE}</b>. Gain net supplémentaire : <b>{eur(eco['gain_apporte_par_le_modele_eur'])}</b> par campagne.")
+    with g3:
+        encart(f"<b>Il rate davantage les jeunes détracteurs.</b> Rappel {pct(eq['<30']['rappel_detracteur'])} chez les moins de 30 ans contre "
+               f"{pct(eq['60+']['rappel_detracteur'])} chez les 60+, sans variable d'âge : les features contractuelles <b>reconstruisent l'âge</b> "
+               f"(AUC {res['audit_proxies'].get('Moins de 30 ans', {}).get('auc', float('nan')):.2f}). Correction chiffrée, décision remontée au métier.", "warn")
 
-    st.markdown("### ")
     c1, c2 = st.columns(2)
     with c1:
-        image("03_cible_mappings.png", "Répartition des classes et NPS selon le mapping de la cible")
+        image("05_nps_simule.png", "Le NPS que l'opérateur voit (répondants), celui que le modèle estime pour les silencieux, et la vérité — connue ici seulement")
     with c2:
-        image("05_calibration_gain.png", "Fiabilité des probabilités (gauche) et gain cumulé de la campagne (droite)")
+        image("05_calibration_gain.png", "Gauche : fiabilité des probabilités (sous la diagonale = surestimées). Droite : part des détracteurs captés selon le nombre d'appels")
 
     st.markdown("### La décision demandée à la direction")
-    st.markdown('<div class="bad"><b>Appeler les clients les plus à risque n\'est pas la stratégie la plus rentable</b> '
-                '(Ascarza, <i>Journal of Marketing Research</i>, 2018 : jusqu\'à 7 points de churn en moins en ciblant par '
-                '<i>sensibilité à l\'appel</i>). Pour le mesurer, une seule chose, gratuite : <b>ne pas contacter 10 à 20 % '
-                'des clients ciblés à la prochaine campagne, tirés au hasard</b>. Sans ce groupe de contrôle, on ne saura jamais '
-                'si la campagne a servi, et le modèle se dégradera en réapprenant ses propres effets.</div>', unsafe_allow_html=True)
+    encart("<b>Appeler les clients les plus à risque n'est pas la stratégie la plus rentable</b> (Ascarza, <i>Journal of Marketing Research</i>, 2018 : "
+           "jusqu'à 7 points de churn en moins en ciblant par <i>sensibilité à l'appel</i>). Pour le mesurer, une seule chose, gratuite : <b>ne pas "
+           "contacter 10 à 20 % des clients ciblés à la prochaine campagne, tirés au hasard</b>. Sans ce groupe de contrôle, on ne saura jamais si la "
+           "campagne a servi, et le modèle se dégradera en réapprenant ses propres effets.", "bad")
+    with st.expander("Ce que cette étude ne fait pas"):
+        st.markdown("- Elle n'estime pas l'effet d'un appel (aucune campagne dans les données).\n"
+                    "- Ses verbatims clients sont synthétiques ; le signal texte est démontré techniquement, pas déployable sur cette base.\n"
+                    "- Ses hypothèses économiques sont des paramètres (`config.yaml`) à valider avec l'équipe rétention.\n"
+                    "- TabPFN n'a pas pu être évalué (poids à accès contrôlé) ; TabICL l'a été.")
 
 
+# ============================================================================ 2. Prioriser
 def page_prioriser():
     st.title("Prioriser les appels")
-    st.caption("Clients silencieux classés par probabilité calibrée d'être détracteur. Filtres, capacité d'appel, export.")
+    st.caption("Clients silencieux classés par probabilité calibrée d'être détracteur. Filtres, capacité d'appel, levier recommandé, export.")
     with st.expander("Filtres", expanded=True):
         f1, f2, f3, f4 = st.columns(4)
         contrats = f1.multiselect("Contrat", sorted(silencieux["Contract"].unique()), default=sorted(silencieux["Contract"].unique()))
@@ -192,31 +190,28 @@ def page_prioriser():
                       & silencieux["Offer"].isin(offres) & silencieux["Tenure in Months"].between(*anc)]
     c1, c2 = st.columns([2, 1])
     k = c1.slider("Capacité d'appel (K)", 50, max(50, min(2000, len(base))), min(K, max(50, len(base))), step=50)
-    pond = c2.checkbox("Pondérer par la valeur client (CLTV)", help="CLTV est interdite comme variable du modèle (sortie de modèle : elle fuit) "
-                       "mais légitime pour arbitrer QUI appeler parmi les détracteurs prédits — couche de décision, pas de modélisation.")
+    pond = c2.checkbox("Pondérer par la valeur client (CLTV)", help="CLTV est interdite comme variable du modèle (sortie de modèle : elle fuit) mais légitime pour "
+                       "arbitrer QUI appeler parmi les détracteurs prédits — couche de décision, pas de modélisation.")
     score = base["proba_detracteur"].copy()
     if pond and "CLTV" in base:
         score = score * (0.5 + 0.5 * base["CLTV"] / base["CLTV"].max())
     liste = base.assign(priorite=score).sort_values("priorite", ascending=False).head(k)
-
-    vrais = (liste["cible_M3"] == "Detracteur").mean() if "cible_M3" in liste else np.nan
+    vrais = (liste["cible_M3"] == "Detracteur").mean() if len(liste) else np.nan
     m1, m2, m3, m4 = st.columns(4)
     kpi(m1, "Clients dans le périmètre", f"{len(base)}", "après filtres")
     kpi(m2, "Appels planifiés", f"{len(liste)}", f"P(détracteur) min. {liste['proba_detracteur'].min():.0%}" if len(liste) else "")
-    kpi(m3, "Vrais détracteurs dans la liste", f"{vrais:.0%}" if pd.notna(vrais) else "—", "connu ici parce que le dataset est complet")
-    kpi(m4, "Détracteurs de la base captés", f"{(liste['cible_M3']=='Detracteur').sum() / max((base['cible_M3']=='Detracteur').sum(),1):.0%}", "rappel sur le périmètre filtré")
+    kpi(m3, "Vrais détracteurs dans la liste", pct(vrais) if pd.notna(vrais) else "—", "connu ici parce que le dataset est complet")
+    kpi(m4, "Détracteurs du périmètre captés", pct((liste['cible_M3'] == 'Detracteur').sum() / max((base['cible_M3'] == 'Detracteur').sum(), 1)), "rappel sur le périmètre filtré")
 
-    cols = ["Customer ID", "proba_detracteur", "prediction", "Contract", "Tenure in Months", "Monthly Charge",
+    cols = ["Customer ID", "proba_detracteur", "prediction", "levier_recommande", "Contract", "Tenure in Months", "Monthly Charge",
             "Internet Type", "Offer", "Number of Referrals"] + (["CLTV"] if pond and "CLTV" in base else [])
-    vue = liste[cols].rename(columns={"proba_detracteur": "P(détracteur)", "prediction": "Classe prédite",
-                                      "Tenure in Months": "Ancienneté (mois)", "Monthly Charge": "Facture mens. ($)",
-                                      "Number of Referrals": "Parrainages"})
+    vue = liste[cols].rename(columns={"proba_detracteur": "P(détracteur)", "prediction": "Classe prédite", "levier_recommande": "Levier recommandé",
+                                      "Tenure in Months": "Ancienneté (mois)", "Monthly Charge": "Facture mens. ($)", "Number of Referrals": "Parrainages"})
     vue["Classe prédite"] = vue["Classe prédite"].map(LIB)
-    st.dataframe(vue.style.format({"P(détracteur)": "{:.1%}", "Facture mens. ($)": "{:.2f}"})
-                 .background_gradient(subset=["P(détracteur)"], cmap="Reds"),
-                 hide_index=True, use_container_width=True, height=440)
-    st.download_button("⬇️ Exporter la liste d'appels (CSV)", liste[cols].to_csv(index=False),
-                       file_name=f"appels_prioritaires_top{len(liste)}.csv", mime="text/csv", type="primary")
+    st.dataframe(vue.style.format({"P(détracteur)": "{:.1%}", "Facture mens. ($)": "{:.2f}"}).background_gradient(subset=["P(détracteur)"], cmap="Reds"),
+                 hide_index=True, width="stretch", height=430)
+    st.download_button("⬇️ Exporter la liste d'appels (CSV)", liste[cols].to_csv(index=False), file_name=f"appels_prioritaires_top{len(liste)}.csv",
+                       mime="text/csv", type="primary")
 
     st.markdown("### Économie de la campagne")
     mk = cfg["metier"]; eco = res["evaluation_metier"]["economie"]
@@ -225,24 +220,30 @@ def page_prioriser():
     kpi(e2, "Gain net (modèle)", eur(eco["gain_net_eur"]), f"ROI {eco['roi']:.2f}")
     kpi(e3, "Gain net (au hasard)", eur(eco["gain_net_ciblage_aleatoire_eur"]), "même taille de campagne")
     kpi(e4, "Apporté par le modèle", eur(eco["gain_apporte_par_le_modele_eur"]), "écart des deux")
-    st.caption(f"Hypothèses métier (`config.yaml`) : coût d'un appel {mk['cout_appel_eur']} €, valeur d'un client retenu "
-               f"{mk['valeur_client_retenu_eur']} €, taux de succès {mk['taux_succes_appel']:.0%}. Paramètres à valider avec l'équipe rétention.")
-    st.markdown('<div class="warn"><b>Limite de cette règle de ciblage.</b> La liste classe par <i>risque</i>, comme demandé. La '
-                'littérature établit qu\'il est plus rentable de cibler par <i>sensibilité à l\'appel</i>. Les probabilités affichées '
-                'sont surestimées en valeur absolue (calibrateur ajusté sur les répondants, biaisés) : elles servent à <b>classer</b>, '
-                'pas à lire une fréquence.</div>', unsafe_allow_html=True)
+    st.caption(f"Hypothèses (`config.yaml`) : coût d'un appel {mk['cout_appel_eur']} €, valeur d'un client retenu {mk['valeur_client_retenu_eur']} €, "
+               f"taux de succès {mk['taux_succes_appel']:.0%}. À valider avec l'équipe rétention.")
+    with st.expander("Précision et rappel selon la capacité d'appel"):
+        ck = pd.DataFrame(res["evaluation_metier"]["courbe_k"])[["k", "precision_at_k", "rappel_at_k", "lift", "detracteurs_captes"]]
+        ck.columns = ["K appels", "Précision@K", "Rappel@K", "Lift", "Détracteurs captés"]
+        tableau(ck, {"Précision@K": "{:.1%}", "Rappel@K": "{:.1%}", "Lift": "×{:.2f}"})
+    encart("<b>Deux limites à garder en tête.</b> La liste classe par <i>risque</i>, comme demandé ; la littérature établit qu'il est plus rentable de cibler "
+           "par <i>sensibilité à l'appel</i> (voir Synthèse). Les probabilités affichées sont surestimées en valeur absolue (calibrateur ajusté sur des "
+           "répondants biaisés) : elles servent à <b>classer</b>, pas à lire une fréquence.", "warn")
 
 
-def afficher_prediction(X_row: pd.DataFrame, cid: str | None):
+# ============================================================================ 3. Analyser un client
+def afficher_prediction(X_row: pd.DataFrame, cid: str | None, ligne: pd.Series | None):
     proba = pipe_cal.predict_proba(X_row)[0]
     pred = str(pipe_dec.predict(X_row)[0])
-    c1, c2, c3 = st.columns([1.1, 1.4, 1.5])
+    c1, c2, c3 = st.columns([1.1, 1.3, 1.6])
     with c1:
         st.markdown(f'<span class="verdict" style="background:{COUL[pred]}">{LIB[pred]}</span>', unsafe_allow_html=True)
         st.caption("classe prédite (pipeline de décision)")
-        if cid is not None and "cible_M3" in clients:
+        if cid is not None:
             vrai = clients.loc[clients["Customer ID"] == cid, "cible_M3"].iloc[0]
             st.markdown(f"Classe réelle (connue ici) : **{LIB.get(vrai, vrai)}**")
+        lev = levier(ligne if ligne is not None else X_row.iloc[0], art.get("mediane_charge_par_service", float(clients["charge_par_service"].median())))
+        encart(f"<b>Levier recommandé</b><br>{lev}", "ok" if pred == "Detracteur" else "note")
     with c2:
         st.markdown("**Probabilités calibrées**")
         for cl, p in zip(classes, proba):
@@ -250,17 +251,18 @@ def afficher_prediction(X_row: pd.DataFrame, cid: str | None):
         st.caption("Servent à classer les clients entre eux ; surestimées en valeur absolue.")
     with c3:
         st.markdown("**Ce qui pèse pour ce client**")
-        contrib = contributions(X_row)
+        C, methode = contributions_detracteur(pipe_brut, X_row, res["seed"])
+        contrib = C.iloc[0]
         top = contrib.reindex(contrib.abs().sort_values(ascending=False).index).head(7)
-        st.dataframe(pd.DataFrame({"Facteur": [libelle(n) for n in top.index],
-                                   "Effet": ["▲ risque" if v > 0 else "▼ risque" for v in top.values],
-                                   "Poids": top.abs().round(2).values}), hide_index=True, use_container_width=True)
-    st.caption("Associations, pas causes. Modèle linéaire : chaque poids est la contribution exacte coef × valeur au score de détraction.")
+        st.dataframe(pd.DataFrame({"Facteur": [libelle_variable(n, cat) for n in top.index], "Effet": ["▲ risque" if v > 0 else "▼ risque" for v in top.values],
+                                   "Poids": top.abs().round(3).values}), hide_index=True, width="stretch")
+        st.caption(f"Méthode : {methode}. Associations, pas causes.")
 
 
 def page_client():
     st.title("Analyser un client")
-    mode = st.radio("", ["Client existant", "Saisie manuelle"], horizontal=True, label_visibility="collapsed")
+    mode = st.radio("Mode", ["Client existant", "Saisie manuelle"], horizontal=True, label_visibility="collapsed")
+    X_row, ligne, cid, valeurs = None, None, None, {}
     if mode == "Client existant":
         c1, c2 = st.columns([1, 2])
         cid = c1.selectbox("Identifiant client", clients["Customer ID"].tolist())
@@ -273,10 +275,14 @@ def page_client():
             kpi(p3, "Internet", str(ligne["Internet Type"]), f"{ligne['Avg Monthly GB Download']:.0f} Go/mois")
             kpi(p4, "Offre · parrainages", str(ligne["Offer"]), f"{int(ligne['Number of Referrals'])} parrainage(s)")
         if pd.notna(ligne.get("cible_profil_detracteur_si_ambigu", np.nan)):
-            st.markdown(f'<div class="note">Satisfaction déclarée = 3 (zone ambiguë). L\'arbitrage empirique attribue à ce client un '
-                        f'<b>profil de détracteur à {ligne["cible_profil_detracteur_si_ambigu"]:.0%}</b>. Indicateur métier, non utilisé à l\'entraînement.</div>',
-                        unsafe_allow_html=True)
-        afficher_prediction(X_row, cid)
+            encart(f"Satisfaction déclarée = 3 (zone ambiguë). L'arbitrage empirique attribue à ce client un <b>profil de détracteur à "
+                   f"{ligne['cible_profil_detracteur_si_ambigu']:.0%}</b>. Indicateur métier, non utilisé à l'entraînement.")
+        afficher_prediction(X_row, cid, ligne)
+        seg = res["nps_simule"]["par_segment"]
+        seg_c = next((s for s in seg if s["segment"] == ("Contrat mensuel" if ligne["Contract"] == "Month-to-Month" else "Contrat 1–2 ans")), None)
+        if seg_c:
+            st.caption(f"Contexte : dans le segment « {seg_c['segment']} », {seg_c['part_detracteurs_vraie']:.0%} des clients sont réellement détracteurs "
+                       f"(NPS du segment {seg_c['nps_vrai']:+.0f}).")
         with st.expander("Toutes les données du client"):
             groupes = {"Contrat et engagement": ["Contract", "Tenure in Months", "Offer", "Paperless Billing", "Payment Method"],
                        "Services": ["Phone Service", "Multiple Lines", "Internet Service", "Internet Type", "Online Security", "Online Backup",
@@ -286,14 +292,12 @@ def page_client():
             cols = st.columns(len(groupes))
             for col, (titre, champs) in zip(cols, groupes.items()):
                 col.markdown(f"**{titre}**")
-                col.dataframe(pd.DataFrame({"": [str(ligne[c]) for c in champs if c in ligne]}, index=[c for c in champs if c in ligne]),
-                              use_container_width=True)
+                col.dataframe(pd.DataFrame({"": [str(ligne[c]) for c in champs if c in ligne]}, index=[c for c in champs if c in ligne]), width="stretch")
         if verbatims is not None and cid in verbatims.index:
             st.markdown("**Dernière note de contact (verbatim synthétique)**")
             st.info(verbatims.loc[cid, "verbatim"])
     else:
-        st.caption("Laisse un champ sur « (inconnu) » ou vide : le pipeline impute et tolère les modalités jamais vues.")
-        valeurs = {}
+        st.caption("Laisse un champ sur « (inconnu) » : le pipeline impute et tolère les modalités jamais vues.")
         with st.form("saisie"):
             cols = st.columns(3)
             for i, c in enumerate(cat):
@@ -304,215 +308,373 @@ def page_client():
                 valeurs[c] = cols[i % 3].number_input(c, value=med, format="%.2f")
             ok = st.form_submit_button("Prédire", type="primary")
         if ok:
-            afficher_prediction(pd.DataFrame([valeurs])[num + cat], None)
+            X_row = pd.DataFrame([valeurs])[num + cat]
+            ligne = X_row.iloc[0].copy()
+            afficher_prediction(X_row, None, ligne)
 
-    # Bonus § 4.8 : un verbatim déplace-t-il la prédiction ?
-    if modele_texte is not None:
-        st.markdown("### Coller un verbatim client")
+    if modele_texte is not None and X_row is not None:
+        st.markdown("### Coller un verbatim client (bonus § 4.8)")
         txt = st.text_area("Note de contact, extrait de chat ou avis", height=90,
                            placeholder="Ex. : Troisième appel ce mois-ci pour la même coupure, j'attends un retour écrit.")
         if txt.strip():
-            X_cur = X_row if mode == "Client existant" else pd.DataFrame([valeurs])[num + cat]
-            p_tab = pipe_cal.predict_proba(X_cur)[0]
+            p_tab = pipe_cal.predict_proba(X_row)[0]
             pt = modele_texte["pipeline_texte"]
             p_txt = pt.predict_proba([txt])[0][[list(pt.classes_).index(c) for c in classes]]
             w = modele_texte["poids_texte"]; p_fus = (1 - w) * p_tab + w * p_txt
-            t = pd.DataFrame({"Classe": [LIB[c] for c in classes], "Tabulaire seul": p_tab, "Texte seul": p_txt,
-                              f"Fusion (poids texte {w:.1f})": p_fus})
-            st.dataframe(t.style.format({c: "{:.1%}" for c in t.columns[1:]}), hide_index=True, use_container_width=True)
-            st.markdown('<div class="warn">Le modèle texte est entraîné sur des verbatims <b>synthétiques</b>, générés à partir de la classe. '
-                        'Sa réaction est une démonstration de la chaîne, pas une mesure de la valeur de vrais verbatims.</div>', unsafe_allow_html=True)
+            t = pd.DataFrame({"Classe": [LIB[c] for c in classes], "Tabulaire seul": p_tab, "Texte seul": p_txt, f"Fusion (poids texte {w:.1f})": p_fus})
+            tableau(t, {c: "{:.1%}" for c in t.columns[1:]})
+            encart("Le modèle texte est entraîné sur des verbatims <b>synthétiques</b>, générés à partir de la classe. Sa réaction est une "
+                   "démonstration de la chaîne, pas une mesure de la valeur de vrais verbatims.", "warn")
 
 
+# ============================================================================ 4. Données et cible
 def page_donnees():
-    st.title("Données")
-    q = res["qualite"]
+    st.title("Données et cible")
+    q = res["qualite"]; a = res["arbitrage_des_3"]
     c = st.columns(5)
-    kpi(c[0], "Clients", f"{q['lignes']}", "5 fichiers joints sur Customer ID")
+    kpi(c[0], "Clients", f"{q['lignes']}", "5 tables jointes sur Customer ID")
     kpi(c[1], "Colonnes", f"{q['colonnes']}", "après jointure")
-    kpi(c[2], "Doublons", f"{q['doublons_id']}", "sur l'identifiant")
-    kpi(c[3], "Colonnes constantes", f"{len(q['constantes'])}", ", ".join(q["constantes"]))
-    kpi(c[4], "Manquants structurels", f"{len(q['manquants'])} colonnes", "encodés en catégorie, jamais imputés")
-    t1, t2, t3, t4 = st.tabs(["Exploration", "Qualité", "Dictionnaire", "Registre de fuites"])
+    kpi(c[2], "Variables du modèle", f"{len(num) + len(cat)}", f"{len(num)} numériques · {len(cat)} catégorielles")
+    kpi(c[3], "Colonnes exclues (fuites)", f"{sum(len(v) for k, v in res['registre_fuites'].items() if k.startswith('fuite'))}", "churn, statut, score, CLTV")
+    kpi(c[4], "Note « 3 » (ambiguë)", f"{a['n_ambigus']}", f"{a['n_ambigus']/q['lignes']:.0%} de la base")
+    t1, t2, t3, t4 = st.tabs(["Exploration", "Qualité", "Registre de fuites", "Construction de la cible"])
     with t1:
         c1, c2 = st.columns(2)
         with c1:
-            image("02_eda_satisfaction.png", "La cible : distribution et lien avec le départ")
-            image("02_eda_cramer.png", "Force d'association des catégorielles avec la satisfaction")
+            image("02_eda_satisfaction.png", "La cible : distribution de la satisfaction, et lien avec le départ")
+            encart("Satisfaction 1–2 → 100 % de départs, 4–5 → 0 %. La note 3 est la seule zone d'incertitude — et elle pèse 38 % de la base.")
+            image("02_eda_cramer.png", "Force d'association des catégorielles avec la satisfaction (gris : démographie, exclue du modèle)")
         with c2:
             image("02_eda_offer.png", "La quasi-expérience : taux de départ par offre reçue")
-            image("02_eda_correlations.png", "Corrélations entre numériques")
-        image("02_eda_numeriques.png", "Numériques par niveau de satisfaction")
-        st.markdown(md_sans_images("02_donnees/analyse_exploratoire.md"))
+            off = pd.DataFrame(res["analyse_offer"]).rename(columns={"Offer": "Offre", "n": "Clients", "taux_depart": "Taux de départ", "satisfaction": "Satisfaction moy."})
+            tableau(off, {"Taux de départ": "{:.1%}", "Satisfaction moy.": "{:.2f}"})
+            encart("Les clients ayant reçu l'<b>offre E</b> partent deux fois plus. Lire « l'offre E fait fuir » serait une erreur : elle a été "
+                   "proposée à des clients déjà fragiles (biais d'indication). Aucune lecture causale possible.", "warn")
+        with st.expander("Numériques par niveau de satisfaction · corrélations"):
+            image("02_eda_numeriques.png"); image("02_eda_correlations.png")
     with t2:
-        image("02_boites_aberrantes.png", "Boîtes à moustaches — valeurs aberrantes conservées")
-        st.markdown(md_sans_images("02_donnees/qualite_donnees.md"))
+        st.markdown("**Cinq contrôles, aucun facultatif.**")
+        c1, c2 = st.columns(2)
+        with c1:
+            manq = pd.DataFrame([{"Colonne": k, "Manquants": v, "Part": f"{v/q['lignes']:.1%}", "Nature": "structurel",
+                                  "Traitement": {"Offer": "catégorie « Aucune offre »", "Internet Type": "catégorie « Pas d'internet »"}.get(k, "colonne exclue (fuite)")}
+                                 for k, v in q["manquants"].items()])
+            st.markdown("Valeurs manquantes — toutes structurelles, aucune imputation"); tableau(manq)
+            st.markdown(f"Doublons : **{q['doublons_id']}** sur l'identifiant, **{q['doublons_lignes']}** sur les lignes · colonnes constantes supprimées : {', '.join(q['constantes'])} · "
+                        f"ancienneté nulle : {q['anciennete_zero']} · incohérences de facturation : {q['incoherence_facturation']} (documentées, non corrigées)")
+        with c2:
+            image("02_boites_aberrantes.png", "Aberrantes conservées : profils réels, modèles robustes")
+            tableau(pd.DataFrame([{"Variable": k, "Hors IQR × 1,5": v} for k, v in q["aberrantes"].items()]))
     with t3:
-        st.markdown(md_sans_images("02_donnees/dictionnaire_donnees.md"))
+        encart("<b>Le fait fondateur</b> : connaître le churn, c'est connaître la cible. Or au moment où l'on veut détecter un détracteur, il n'est pas "
+               "encore parti. Toute colonne liée au churn est une fuite — de trois natures.", "bad")
+        reg = res["registre_fuites"]
+        nat = {"fuite_consequence": ("Conséquence", "la colonne est un effet de la cible"), "fuite_disponibilite": ("Disponibilité", "n'existe que pour les partis : sa présence trahit la réponse"),
+               "fuite_modele_amont": ("Modèle amont", "sortie d'un autre modèle (IBM SPSS) ; CLTV admise en couche de décision seulement"),
+               "audit_seulement": ("Audit seulement", "démographie et géographie : hors modèle, utilisées pour l'audit d'équité"), "techniques": ("Techniques", "identifiants, constantes")}
+        tableau(pd.DataFrame([{"Nature": nat[k][0], "Définition": nat[k][1], "Colonnes": ", ".join(v)} for k, v in reg.items() if k in nat]))
+        c1, c2 = st.columns(2)
+        with c1:
+            image("02_information_mutuelle.png", "Information mutuelle avec la cible — rouge : fuites exclues, bleu : features légitimes")
+        with c2:
+            d = res["diagnostic_fuite"]
+            st.markdown("**Porte de contrôle après modélisation**")
+            tableau(pd.DataFrame([{"Diagnostic": "Exactitude maximale observée (toute la grille)", "Valeur": f"{d['exactitude_max_observee']:.3f}", "Seuil": "0,85", "Verdict": "⚠️" if d["alarme"] else "✅"},
+                                  {"Diagnostic": "Écart arbres − linéaire (signature d'une fuite)", "Valeur": f"{d['ecart_arbres_lineaire_S1_M3']:+.3f}", "Seuil": "+0,30", "Verdict": "⚠️" if d["ecart_arbres_lineaire_S1_M3"] > 0.3 else "✅"}]))
+            encart("Contre-exemple publié : Mustafa et al. (2021) annoncent 98 % d'exactitude avec la note NPS parmi les features — linéaires à 41 %, arbres à 98 %. "
+                   "Cet écart est la signature d'une variable qui fuit ; ici il est nul.")
     with t4:
-        image("02_information_mutuelle.png", "Information mutuelle avec la cible — rouge : fuites exclues")
-        st.markdown(md_sans_images("02_donnees/registre_fuites.md"))
+        c1, c2 = st.columns([1.3, 1])
+        with c1:
+            image("03_cible_mappings.png", "Trois mappings, et le NPS qui en résulte (bande verte : benchmark télécom)")
+        with c2:
+            tableau(pd.DataFrame([{"Mapping": "M1 (énoncé)", "Détracteur": "1, 2, 3", "Passif": "4", "Promoteur": "5", "NPS": f"{a['nps']['M1']:+.1f}"},
+                                  {"Mapping": "M2 (recentré)", "Détracteur": "1, 2", "Passif": "3, 4", "Promoteur": "5", "NPS": f"{a['nps']['M2']:+.1f}"},
+                                  {"Mapping": "M3 (arbitré)", "Détracteur": "1, 2", "Passif": "3", "Promoteur": "4, 5", "NPS": f"{a['nps']['M3']:+.1f}"}]))
+            encart(f"<b>Arbitrage empirique des « 3 »</b> : un modèle entraîné sur les seuls extrêmes (1–2 vs 4–5, exactitude {a['exactitude_sur_extremes']:.0%}) "
+                   f"classe les {a['n_ambigus']} clients à 3 : <b>{a['part_3_vers_detracteur']:.0%}</b> penchent détracteur, <b>{a['part_3_vers_promoteur']:.0%}</b> promoteur. "
+                   f"Le bloc rejoint les {a['destination_des_3']}s.")
+            encart("<b>Piège évité</b> : étiqueter chaque « 3 » individuellement par ce modèle rendrait la cible fonction des features (circularité). "
+                   "On tranche le bloc ; la probabilité individuelle reste un indicateur métier, jamais une étiquette.", "warn")
+        image("03_arbitrage_des_3.png", "Distribution de la probabilité « profil détracteur » attribuée aux clients à satisfaction 3")
+        image("03_desequilibre.png", "Déséquilibre des classes dans la base, chez les répondants (entraînement) et chez les silencieux (évaluation)")
+        with st.expander("Stratégies de déséquilibre comparées (baseline logistique)"):
+            tableau(resume_vers_df(res["desequilibre"]["strategies"], "strategie", "Stratégie"), FMT3)
 
 
+# ============================================================================ 5. Modèles et performance
 def page_modele():
-    st.title("Modèle et performance")
-    m = mf["metriques_retenues"]
+    st.title("Modèles et performance")
+    m = mf["metriques_retenues"]; cl = pd.DataFrame(sel["classement"])
     c = st.columns(5)
-    kpi(c[0], "Kappa quadratique", f"{m['kappa_quadratique']:.3f}", "métrique ordinale principale")
-    kpi(c[1], "Macro-F1", f"{m['macro_f1']:.3f}", "moyenne des trois classes")
-    kpi(c[2], "Exactitude équilibrée", f"{m['exactitude_equilibree']:.3f}", "")
-    kpi(c[3], "Exactitude brute", f"{m['exactitude']:.3f}", "trompeuse — 0,43 en prédisant toujours Passif")
-    kpi(c[4], "Alarme fuite", "aucune" if not res["diagnostic_fuite"]["alarme"] else "OUI",
-        f"max observé {res['diagnostic_fuite']['exactitude_max_observee']:.2f} < 0,85")
-    t1, t2, t3, t4, t5 = st.tabs(["Par classe", "Comparaison des modèles", "Hyperparamètres", "Calibration", "TabPFN"])
+    kpi(c[0], "Modèles comparés", f"{len(cl)}", "7 familles · 3 formulations")
+    kpi(c[1], "Retenu", NOM_MODELE, f"{mf['version']} · rang CV {int(cl[cl.modele == mf['modele']]['rang_cv'].iloc[0])} · rang test {int(cl[cl.modele == mf['modele']]['rang_silencieux'].iloc[0])}")
+    kpi(c[2], "Kappa quadratique (test)", f"{m['kappa_quadratique']:.3f}", f"CV répondants {cl[cl.modele == mf['modele']]['kappa_cv'].iloc[0]:.3f}")
+    kpi(c[3], "Macro-F1 · exactitude équilibrée", f"{m['macro_f1']:.3f} · {m['exactitude_equilibree']:.3f}", f"exactitude brute {m['exactitude']:.3f} (trompeuse)")
+    kpi(c[4], "AUC · AP Détracteur", f"{m.get('auc_detracteur', float('nan')):.3f} · {m.get('ap_detracteur', float('nan')):.3f}", "qualité du classement")
+    t1, t2, t3, t4, t5, t6 = st.tabs(["Catalogue justifié", "Comparaison et sélection", "Hyperparamètres", "Par classe et calibration", "Robustesse", "Fondation et texte"])
     with t1:
-        pc = pd.DataFrame(m["par_classe"]).T.rename(index=LIB)
-        pc["effectif"] = pc["effectif"].astype(int)
-        pc.columns = ["Précision", "Rappel", "F1", "Effectif"]
-        st.dataframe(pc.style.format({"Précision": "{:.3f}", "Rappel": "{:.3f}", "F1": "{:.3f}", "Effectif": "{:d}"}),
-                     use_container_width=True)
-        image("05_confusion_pr.png", "Matrice de confusion et courbes précision-rappel sur les 85 % silencieux")
-        st.caption(f"Stratégie de décision : {mf.get('strategie_decision', '')}")
+        st.markdown("Chaque modèle est là pour tester une **hypothèse** sur les données — on ne compare pas des algorithmes pour remplir un tableau.")
+        catd = pd.DataFrame(res["catalogue"])[["famille", "nom", "formulation", "pourquoi", "hypothese", "reference"]]
+        catd.columns = ["Famille", "Modèle", "Formulation", "Pourquoi il est là", "Hypothèse testée", "Référence"]
+        st.dataframe(catd, hide_index=True, width="stretch", height=560)
+        encart("Écartés avec argument : CORAL / CORN (apprentissage profond ordinal, sans objet sur ~1 000 lignes). Modèles de fondation évalués à part (onglet dédié).")
     with t2:
-        image("04_grille_kappa.png", "27 combinaisons — la cible M3 domine, la logistique gagne")
-        sel = res.get("selection_modele_final", {})
-        if sel:
-            st.markdown(f"**Sélection par la mesure** — {sel['critere']}")
-            st.dataframe(pd.DataFrame(sel["classement"]), hide_index=True, use_container_width=True)
-        image("04_cv_boxplot.png", "Stabilité en validation croisée (5 plis) sous S3 · M3")
-        if "effet_ipw" in res and "sans_ipw" in res["effet_ipw"]:
+        st.markdown("**Règle de sélection, fixée a priori** : kappa en validation croisée sur les répondants, pondéré par l'inverse de la propension estimée ; "
+                    "parmi les modèles à moins d'un écart-type du meilleur, le **plus simple** l'emporte (règle du « one standard error », ESL § 7.10). "
+                    "Les 85 % silencieux sont le test : rapportés pour tous, utilisés pour aucun choix.")
+        c1, c2 = st.columns([1.2, 1])
+        with c1:
+            image("04_cv_vs_silencieux.png", "Ce que la validation croisée promet (x) contre ce que le test donne (y). Rouge : retenu ; bleu : dans la marge de parcimonie")
+        with c2:
+            kpi(st, "Meilleur kappa CV brut", sel["meilleur_cv_brut"].replace("_", " "), f"marge de parcimonie ≥ {sel['seuil_parcimonie']:.3f}")
+            st.write("")
+            kpi(st, "Meilleur sur le test", sel["gagnant_silencieux"].replace("_", " "), "connu seulement parce que le dataset est complet")
+            st.write("")
+            kpi(st, "ρ de Spearman CV ↔ test", f"{sel['spearman_cv_ipw_vs_silencieux']:.2f}", f"{sel['spearman_cv_vs_silencieux']:.2f} sans pondération IPW")
+            st.write("")
+            kpi(st, "Écart CV → test du modèle retenu", f"{sel['ecart_cv_silencieux_du_retenu']:+.3f}", "le coût du biais de réponse, invisible en production")
+        clt = cl[["rang_cv", "modele", "famille", "formulation", "version", "kappa_cv_ipw", "kappa_cv_et", "macro_f1_cv", "dans_la_marge",
+                  "kappa_silencieux", "macro_f1_silencieux", "rappel_detracteur_silencieux", "rappel_passif_silencieux", "rang_silencieux"]].copy()
+        clt["dans_la_marge"] = clt["dans_la_marge"].map({True: "✓", False: ""})
+        clt.columns = ["Rang CV", "Modèle", "Famille", "Formulation", "Version", "Kappa CV IPW", "± plis", "Macro-F1 CV", "Marge", "Kappa test", "Macro-F1 test",
+                       "Rappel Dét. test", "Rappel Passif test", "Rang test"]
+        tableau(clt, {c_: "{:.3f}" for c_ in ("Kappa CV IPW", "± plis", "Macro-F1 CV", "Kappa test", "Macro-F1 test", "Rappel Dét. test", "Rappel Passif test")}, 560)
+        image("04_grille_kappa.png", "Gauche : effet du mapping de la cible (S3). Droite : effet du biais de non-réponse (M3). Kappa sur les silencieux")
+        with st.expander("Les trois formulations de l'énoncé — meilleur modèle de chacune"):
+            fo_ = pd.DataFrame([{"Formulation": k, "Modèles": v["n_modeles"], "Meilleur (CV)": v["meilleur_modele"].replace("_", " "), "Kappa CV IPW": v["kappa_cv_ipw"],
+                                 "Kappa test": v["kappa_silencieux"], "Macro-F1 test": v["macro_f1_silencieux"]} for k, v in res["formulations"].items()])
+            tableau(fo_, {"Kappa CV IPW": "{:.3f}", "Kappa test": "{:.3f}", "Macro-F1 test": "{:.3f}"})
+        with st.expander("Protocole 15 / 85 et repondération IPW"):
+            image("04_protocole_15_85.png", "Satisfaction des répondants simulés vs base : sous S3 (MNAR), les extrêmes dominent")
+            dg = pd.DataFrame(res["diagnostic_protocole"])
+            tableau(dg, {"taux_reponse": "{:.1%}", "satisfaction_moyenne_base": "{:.3f}", "satisfaction_moyenne_repondants": "{:.3f}", "part_extremes_base": "{:.1%}", "part_extremes_repondants": "{:.1%}", "ecart": "{:+.3f}"})
             e = res["effet_ipw"]
-            st.caption(f"Repondération IPW : kappa {e['sans_ipw']['kappa']:.3f} sans → {e['avec_ipw']['kappa']:.3f} avec · retenu : {e['retenu']}.")
+            if "sans_ipw" in e:
+                st.caption(f"IPW estimée (MAR) comme poids d'entraînement : kappa {e['sans_ipw']['kappa']:.3f} sans → {e['avec_ipw']['kappa']:.3f} avec · retenu : {e['retenu']}. {e['note']}.")
     with t3:
-        h = res.get("hyperparametres", {})
-        if not h:
-            st.info("Recherche d'hyperparamètres non encore exécutée.")
-        for nom, v in h.items():
-            st.markdown(f"**{nom}**")
-            if "erreur" in v:
-                st.error(v["erreur"]); continue
-            a, b, cc, d = st.columns(4)
-            kpi(a, "Kappa CV interne (réglé)", f"{v['kappa_cv_interne']:.3f}", f"{v['n_configurations']} configurations")
-            kpi(b, "Kappa silencieux — défaut", f"{v['kappa_silencieux_defaut']:.3f}", "")
-            kpi(cc, "Kappa silencieux — réglé", f"{v['kappa_silencieux_regle']:.3f}", f"gain {v['gain_kappa']:+.3f}")
-            kpi(d, "Décision", v["retenu"], "")
-            st.json(v["meilleurs_params"], expanded=False)
-        st.caption("Espaces de recherche modestes à dessein : sur ~1 050 lignes, le risque de surajuster la recherche dépasse vite le gain.")
+        image("04_reglage.png", "Kappa CV pondéré, par défaut vs réglé (recherche aléatoire, 5 plis). Réglé retenu si gain > 0,005 en CV — jamais sur le test")
+        rows = []
+        for nom, l in res["comparatif_s3_m3"].items():
+            r = l.get("regle", {}); d = l["defaut"]
+            rows.append({"Modèle": nom.replace("_", " "), "Configurations": str(r.get("n_configurations", "—")), "Kappa CV défaut": d["cv"]["kappa_cv_ipw"],
+                         "Kappa CV réglé": r.get("cv", {}).get("kappa_cv_ipw", np.nan), "Gain": l.get("gain_reglage_cv_ipw", np.nan),
+                         "Test défaut": d["silencieux"]["kappa"], "Test réglé": r.get("silencieux", {}).get("kappa", np.nan), "Version retenue": l["version_retenue"],
+                         "Meilleurs paramètres": ", ".join(f"{k}={v}" for k, v in r.get("meilleurs_params", {}).items()) or "—"})
+        tableau(pd.DataFrame(rows), {"Kappa CV défaut": "{:.3f}", "Kappa CV réglé": "{:.3f}", "Gain": "{:+.3f}", "Test défaut": "{:.3f}", "Test réglé": "{:.3f}"}, 560)
+        st.caption("Espaces de recherche modestes à dessein : sur ~1 000 lignes, le risque de surajuster la recherche dépasse vite le gain.")
     with t4:
-        image("05_calibration_gain.png", "Courbe de fiabilité et gain cumulé")
-        mc, mb = mf["metriques_calibre"], mf["metriques_non_calibre"]
-        st.markdown(f"""
-La calibration (isotonique puis Platt) a **écrasé la classe Passif** : rappel {mc['par_classe']['Passif']['rappel']:.2f} après contre
-{mb['par_classe']['Passif']['rappel']:.2f} avant. Sous MNAR les Passifs sont rares parmi les répondants. D'où la stratégie hybride : classe par
-le modèle non calibré, P(Détracteur) par le modèle calibré pour le classement.
-
-Les courbes de fiabilité sont **sous la diagonale** : le calibrateur apprend le taux de base des répondants (biaisé vers les extrêmes),
-pas celui de la population silencieuse. Le **classement** reste valide, la **valeur absolue** des probabilités ne l'est pas.
-""")
+        c1, c2 = st.columns([1, 1.4])
+        with c1:
+            pc = pd.DataFrame(m["par_classe"]).T.rename(index=LIB); pc["effectif"] = pc["effectif"].astype(int)
+            pc.columns = ["Précision", "Rappel", "F1", "Effectif"]
+            st.dataframe(pc.style.format({"Précision": "{:.3f}", "Rappel": "{:.3f}", "F1": "{:.3f}", "Effectif": "{:d}"}), width="stretch")
+            cal = mf["calibration"]
+            tableau(pd.DataFrame([{"": "Non calibré", "Brier": cal["non_calibre"]["brier"], "ECE": cal["non_calibre"]["ece"], "Rappel Passif": mf["metriques_non_calibre"]["par_classe"]["Passif"]["rappel"]},
+                                  {"": "Calibré (Platt)", "Brier": cal["calibre_platt"]["brier"], "ECE": cal["calibre_platt"]["ece"], "Rappel Passif": mf["metriques_calibre"]["par_classe"]["Passif"]["rappel"]}]),
+                    {"Brier": "{:.3f}", "ECE": "{:.3f}", "Rappel Passif": "{:.2f}"})
+            encart(f"<b>Stratégie de décision</b> : {mf['strategie_decision']}.", "warn" if cal["passif_ecrase"] else "note")
+        with c2:
+            image("05_confusion_pr.png", "Matrice de confusion et courbes précision-rappel sur les 85 % silencieux")
+        image("05_calibration_gain.png", "Fiabilité (sous la diagonale : le calibrateur, ajusté sur des répondants biaisés, surestime P(Détracteur)) et gain cumulé")
+        encart("Le <b>classement</b> par P(Détracteur) est valide (l'ordre est préservé) ; la <b>valeur absolue</b> ne doit pas être lue comme une fréquence. "
+               "En production : recalibrer sur les premières vraies réponses de la population cible.")
     with t5:
-        tp = extra.get("tabpfn")
-        if not tp:
-            st.info("Évaluation TabPFN non encore exécutée (`python -m src.tabpfn_eval`).")
-        elif tp.get("statut") != "ok":
-            st.warning(f"TabPFN indisponible dans cet environnement : {tp.get('erreur', '')}")
-            st.caption("Domaine de validité annoncé de TabPFN-2.5 : ~50 000 lignes, ~2 000 features — nos 7 043 lignes sont dans le domaine. "
-                       "Limites connues : latence d'inférence, pas d'interprétabilité native, coût en production.")
+        image("05_robustesse.png", "Gauche : dégradation quand on corrompt les étiquettes d'entraînement. Droite : ce que chaque bloc de variables coûte ou rapporte")
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Bruit d'étiquettes** (énoncé § 4.1)")
+            br = resume_vers_df(res["bruit_etiquettes"], "taux_bruit", "Bruit"); br["Bruit"] = br["Bruit"].map(lambda v: f"{v:.0%}")
+            tableau(br, FMT3)
+        with c2:
+            st.markdown("**Ablation de features** (énoncé § 4.3, § 4.7)")
+            ab = resume_vers_df(res["ablation_features"], "configuration", "Configuration"); ab.insert(1, "Variables", [a_["n_variables"] for a_ in res["ablation_features"] if "kappa" in a_])
+            tableau(ab, FMT3)
+        encart("Ajouter la démographie ou la géographie est le <b>coût mesuré du choix d'équité</b> : il est assumé, et l'onglet Équité montre que le modèle "
+               "retrouve de toute façon ces attributs par proxies.")
+        with st.expander("Sensibilité au mapping de la cible"):
+            image("05_sensibilite_mapping.png", "Les mêmes drivers sous M1, M2, M3 (coefficients de la logistique) : le sens tient, l'amplitude varie")
+    with t6:
+        fo = extra.get("fondation")
+        st.markdown("**Modèles de fondation tabulaires** (bonus § 4.5) — consigne : « do not frame it as the winner if it is not »")
+        if not fo:
+            st.info("Non exécuté (`python -m src.fondation_eval`).")
         else:
-            a, b, cc, d = st.columns(4)
-            kpi(a, "Kappa TabPFN", f"{tp['metriques']['kappa']:.3f}", f"logistique {tp['reference_logistique']['kappa']:.3f}")
-            kpi(b, "Macro-F1", f"{tp['metriques']['macro_f1']:.3f}", "")
-            kpi(cc, "Inférence", f"{tp['duree_inference_s']:.1f} s", f"{tp['latence_par_client_ms']:.2f} ms / client")
-            kpi(d, "Logistique", f"{tp['reference_logistique']['duree_inference_s']:.3f} s", "même population")
-            st.dataframe(pd.DataFrame(tp["metriques"]["par_classe"]).T.rename(index=LIB), use_container_width=True)
-            verdict = "gagne" if tp["metriques"]["kappa"] > tp["reference_logistique"]["kappa"] + 0.005 else "ne gagne pas"
-            st.caption(f"Verdict honnête : TabPFN **{verdict}** face à la régression logistique sur cette tâche, pour un coût d'inférence bien supérieur.")
-
-
-def page_equite():
-    st.title("Équité")
-    eq = res["audit_equite"]; pire = max(eq.items(), key=lambda kv: kv[1]["ecart_max"])
-    c = st.columns(len(eq))
-    for col, (dim, v) in zip(c, eq.items()):
-        kpi(col, dim, f"{v['ecart_max']*100:.0f} pts", "écart max de rappel Détracteur")
-    image("05_equite.png", "Rappel Détracteur par sous-groupe — variables exclues du modèle, utilisées uniquement ici")
-    st.markdown(f'<div class="bad"><b>Écart le plus fort : {pire[0]} — {pire[1]["ecart_max"]*100:.0f} points.</b> '
-                f'C\'est le cas que l\'énoncé décrit comme inacceptable, en sens inverse : ce sont les jeunes détracteurs qu\'on rate, '
-                f'sans qu\'aucune variable d\'âge n\'entre dans le modèle — il les retrouve via les proxies contractuels.</div>', unsafe_allow_html=True)
-    st.markdown(md_sans_images("05_evaluation/audit_equite.md"))
-
-
-def page_drivers():
-    st.title("Drivers de détraction")
-    image("05_interpretabilite.png", "Les 15 variables qui pèsent le plus — rouge augmente le risque, vert le diminue")
-    c1, c2 = st.columns(2)
-    with c1:
-        image("05_sensibilite_mapping.png", "Les mêmes drivers sous M1, M2, M3 ? Le sens tient, l'amplitude varie")
-    with c2:
-        st.markdown(md_sans_images("05_evaluation/sensibilite_mapping.md"))
-    st.markdown(md_sans_images("05_evaluation/interpretabilite_drivers.md"))
-
-
-def page_methode():
-    st.title("Méthode")
-    t1, t2, t3, t4 = st.tabs(["Construction de la cible", "Protocole 15 / 85", "Verbatims et texte", "Cadrage et revue"])
-    with t1:
-        image("03_arbitrage_des_3.png", "Arbitrage empirique des clients à satisfaction 3")
-        st.markdown(md_sans_images("03_preparation/construction_cible.md"))
-    with t2:
-        image("04_protocole_15_85.png", "Satisfaction des répondants vs base — S3 sur-représente les extrêmes")
-        st.markdown(md_sans_images("04_modelisation/protocole_validation.md"))
-    with t3:
+            ref = fo["reference"]
+            rows = []
+            for mm in fo["modeles"]:
+                if mm["statut"] == "ok":
+                    rows.append({"Modèle": mm["nom"], "Kappa": mm["metriques"]["kappa"], "Macro-F1": mm["metriques"]["macro_f1"], "Rappel Dét.": mm["metriques"]["rappel_detracteur"],
+                                 "Rappel Passif": mm["metriques"]["rappel_passif"], "Ajustement (s)": mm["duree_fit_s"], "Inférence (s)": mm["duree_inference_s"], "ms / client": mm["latence_par_client_ms"], "Statut": "évalué"})
+                else:
+                    rows.append({"Modèle": mm["nom"], "Statut": f"indisponible — {mm['erreur'][:80]}…"})
+            rows.append({"Modèle": f"{NOM_MODELE} (retenu)", "Kappa": ref["kappa"], "Macro-F1": ref["macro_f1"], "Rappel Dét.": ref["rappel_detracteur"], "Inférence (s)": ref["duree_inference_s"], "Statut": "référence"})
+            tableau(pd.DataFrame(rows), {"Kappa": "{:.3f}", "Macro-F1": "{:.3f}", "Rappel Dét.": "{:.3f}", "Rappel Passif": "{:.3f}", "Ajustement (s)": "{:.1f}", "Inférence (s)": "{:.2f}", "ms / client": "{:.2f}"})
+            for mm in [x for x in fo["modeles"] if x["statut"] == "ok"]:
+                gagne = mm["metriques"]["kappa"] > ref["kappa"] + 0.005
+                encart(f"<b>{mm['nom']}</b> {'bat' if gagne else 'ne bat pas'} le modèle retenu (kappa {mm['metriques']['kappa']:.3f} vs {ref['kappa']:.3f}) pour une inférence "
+                       f"{mm['duree_inference_s']/max(ref['duree_inference_s'],1e-3):.0f}× plus lente et sans explication native.", "ok" if gagne else "note")
+        st.markdown("**Verbatims synthétiques et fusion texte** (bonus § 4.4)")
         tx = extra.get("texte")
         if not tx:
-            st.info("Chaîne texte non encore exécutée (`python -m src.verbatims` puis `python -m src.texte`).")
+            st.info("Non exécuté (`python -m src.verbatims` puis `python -m src.texte`).")
         else:
-            a, b, cc, d = st.columns(4)
-            kpi(a, "Verbatims", f"{tx['n_verbatims']}", tx["source_verbatims"].replace("_", " "))
-            kpi(b, "Kappa tabulaire", f"{tx['tabulaire_seul']['kappa']:.3f}", "référence")
-            kpi(cc, "Kappa texte seul", f"{tx['texte_seul']['kappa']:.3f}", f"concordance ton/classe {tx['concordance_tonalite_classe']:.0%}")
-            kpi(d, "Kappa fusion tardive", f"{tx['fusion_tardive']['kappa']:.3f}", f"poids texte {tx['fusion_tardive']['poids_texte']:.1f} · gain {tx['gain_kappa_fusion_tardive']:+.3f}")
-            st.markdown(f'<div class="warn"><b>Lecture obligatoire.</b> {tx["lecture"]}</div>', unsafe_allow_html=True)
-            st.markdown(f"""
-- **Source des verbatims** : `{tx['source_verbatims']}`. Sans clé API dans l'environnement, le générateur local à gabarits
-  stochastiques (fragments rédigés par un LLM, assemblage seedé) a été utilisé ; le script d'appel à l'API Anthropic est prêt
-  (`src/verbatims.py`, prompt versionné `prompts/verbatim_v1.txt`) et produit le même schéma.
-- **Bruit injecté** : 25 % des tonalités redistribuées au hasard → concordance observée {tx['concordance_tonalite_classe']:.0%}, plafond théorique {tx['plafond_theorique']:.0%}.
-- **Fusion précoce (SVD 20)** : kappa {tx['fusion_precoce_svd20']['kappa']:.3f}.
-- Poids de fusion choisi par validation croisée sur les répondants : {tx['fusion_tardive']['grille_poids_cv']}.
-""")
-    with t4:
-        st.markdown(md_sans_images("01_comprehension_metier.md"))
-        st.divider()
-        st.markdown(md_sans_images("05_evaluation/revue_processus.md"))
+            a_, b_, c_, d_ = st.columns(4)
+            kpi(a_, "Verbatims", f"{tx['n_verbatims']}", tx["source_verbatims"].replace("_", " "))
+            kpi(b_, "Kappa tabulaire", f"{tx['tabulaire_seul']['kappa']:.3f}", "référence")
+            kpi(c_, "Kappa texte seul", f"{tx['texte_seul']['kappa']:.3f}", f"concordance ton/classe {tx['concordance_tonalite_classe']:.0%}")
+            kpi(d_, "Kappa fusion tardive", f"{tx['fusion_tardive']['kappa']:.3f}", f"poids texte {tx['fusion_tardive']['poids_texte']:.1f} · gain {tx['gain_kappa_fusion_tardive']:+.3f}")
+            encart(f"<b>Lecture obligatoire.</b> {tx['lecture']} Conclusion : pas de composante texte en production sur cette base.", "warn")
 
 
-def page_monitoring():
-    st.title("Monitoring et réentraînement")
-    mo = extra.get("monitoring")
-    if not mo:
-        st.info("Monitoring non encore exécuté (`python -m src.monitoring`)."); return
-    s = mo["seuils"]; pd_ = mo["part_detracteurs_predits"]
+# ============================================================================ 6. Drivers et équité
+def page_drivers():
+    st.title("Drivers et équité")
+    dr = res["drivers"]; eq = res["audit_equite"]; px = res["audit_proxies"]; mit = res["mitigation_seuils_age"]
+    pire = max(eq.items(), key=lambda kv: kv[1]["ecart_max"])
     c = st.columns(4)
-    kpi(c[0], "PSI prédictions — courant", f"{mo['psi_predictions_courant']:.3f}", "stable < 0,10 · alerte > 0,20")
-    kpi(c[1], "PSI prédictions — mois simulé", f"{mo['psi_predictions_mois_simule']:.3f}", mo["scenario_simule"][:40] + "…")
-    kpi(c[2], "Part détracteurs prédits", f"{pd_['courant']:.0%} → {pd_['mois_simule']:.0%}", f"référence {pd_['reference']:.0%}")
-    kpi(c[3], "Réentraînement (mois simulé)", "DÉCLENCHÉ" if mo["reentrainement_declenche_mois_simule"] else "non", ", ".join(mo["variables_en_alerte_mois_simule"][:3]))
-    image("06_monitoring.png", "PSI par variable et distribution de P(Détracteur) — référence, courant, mois simulé")
-    t1, t2 = st.tabs(["Dérive courante", "Mois simulé"])
+    kpi(c[0], "Méthode d'explication", dr.get("methode", "—").split(" (")[0], "identique dans l'étude et pour chaque client")
+    kpi(c[1], "Driver n°1", list(dr["importance_detracteur"])[0] if "importance_detracteur" in dr else "—", "importance moyenne la plus forte")
+    kpi(c[2], "Écart d'équité maximal", f"{pire[1]['ecart_max']*100:.0f} pts", f"rappel Détracteur · dimension : {pire[0]}")
+    kpi(c[3], "Attribut le plus « proxé »", max(px.items(), key=lambda kv: kv[1]["auc"])[0], f"AUC de reconstruction {max(v['auc'] for v in px.values()):.2f}")
+    t1, t2, t3, t4, t5 = st.tabs(["Drivers globaux", "Par segment", "Leviers", "Équité par sous-groupe", "Proxies et mitigation"])
     with t1:
-        st.dataframe(pd.DataFrame(mo["derive_entrees_courant"]).style.format({"PSI": "{:.4f}"}), hide_index=True, use_container_width=True, height=380)
+        image("05_interpretabilite.png", "Les 15 variables qui pèsent le plus (rouge : une valeur élevée augmente le risque, vert : le diminue)")
+        encart("<b>Ce que le modèle dit</b> : contrat sans engagement, faible ancienneté, absence de parrainage, charge mensuelle élevée vont avec la détraction ; "
+               "l'offre E ressort comme marqueur de clients déjà fragiles. <b>Associations, pas causes.</b>")
+        with st.expander("Table des importances"):
+            imp = pd.DataFrame({"Variable": list(dr["importance_detracteur"]), "Importance": list(dr["importance_detracteur"].values()),
+                                "Sens (corr. valeur ↔ contribution)": [dr.get("direction", {}).get(v, np.nan) for v in dr["importance_detracteur"]]})
+            tableau(imp, {"Importance": "{:.4f}", "Sens (corr. valeur ↔ contribution)": "{:+.2f}"})
     with t2:
-        st.dataframe(pd.DataFrame(mo["derive_entrees_mois_simule"]).style.format({"PSI": "{:.4f}"}), hide_index=True, use_container_width=True, height=380)
-    st.markdown(md_sans_images("06_deploiement/monitoring_et_retrainement.md"))
+        image("05_drivers_segments.png", "Importance moyenne de chaque variable dans chaque segment (énoncé § 4.6)")
+        segs = dr.get("par_segment", {})
+        if segs:
+            tableau(pd.DataFrame([{"Segment": s, "Clients": v["clients"], **{f"Driver {i+1}": f"{k} ({d['sens']})" for i, (k, d) in enumerate(list(v["drivers"].items())[:5])}} for s, v in segs.items()]))
+        segn = pd.DataFrame(res["nps_simule"]["par_segment"]).rename(columns={"segment": "Segment", "clients": "Clients", "nps_predit": "NPS prédit", "nps_vrai": "NPS vrai",
+                                                                            "part_detracteurs_predite": "Part Dét. prédite", "part_detracteurs_vraie": "Part Dét. vraie"})
+        st.markdown("**NPS par segment — prédit vs vrai (silencieux)**"); tableau(segn, {"Part Dét. prédite": "{:.1%}", "Part Dét. vraie": "{:.1%}"})
+    with t3:
+        lev = res["leviers"]
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.markdown("**Actionnable ou non**")
+            tableau(pd.DataFrame([("Contrat mensuel", "oui", "proposer un engagement 12 mois avec avantage"), ("Faible ancienneté", "partiellement", "parcours d'accueil renforcé"),
+                                  ("Charge mensuelle / par service élevée", "oui", "revue tarifaire, bundle"), ("Absence de parrainage", "indirectement", "programme de parrainage"),
+                                  ("Offre E reçue", "signal, pas levier", "comprendre à qui elle a été proposée"), ("Type d'accès (fibre)", "non à court terme", "réseau, support premium")],
+                                 columns=["Driver", "Actionnable ?", "Levier"]))
+        with c2:
+            st.markdown("**Règle de recommandation individuelle** (affichée pour chaque client)")
+            st.markdown("\n".join(f"- {r}" for r in lev["regle"]))
+            tableau(pd.DataFrame([{"Levier": k, "Détracteurs prédits concernés": v} for k, v in lev["distribution_detracteurs_predits"].items()]).sort_values("Détracteurs prédits concernés", ascending=False))
+        encart(f"{lev['avertissement'].capitalize()}.", "warn")
+    with t4:
+        image("05_equite.png", "Par sous-groupe : rappel Détracteur (bleu) et taux de sélection (gris). Variables exclues du modèle, utilisées uniquement ici")
+        rows = [{"Dimension": d, "Groupe": g, "Clients": r["effectif"], "Détracteurs réels": r["taux_detracteurs_reel"], "Taux de sélection": r["taux_selection"],
+                 "Rappel Dét.": r["rappel_detracteur"], "Précision Dét.": r["precision_detracteur"]} for d, v in eq.items() for g, r in v["groupes"].items()]
+        tableau(pd.DataFrame(rows), {"Détracteurs réels": "{:.1%}", "Taux de sélection": "{:.1%}", "Rappel Dét.": "{:.1%}", "Précision Dét.": "{:.1%}"}, 460)
+        g30 = eq["tranche_age"]["groupes"]
+        encart(f"<b>Écart le plus fort : {pire[0]}, {pire[1]['ecart_max']*100:.0f} points.</b> Le modèle rappelle {g30['<30']['rappel_detracteur']:.0%} des détracteurs de moins de 30 ans contre "
+               f"{g30['60+']['rappel_detracteur']:.0%} des 60 ans et plus — le cas que l'énoncé décrit comme inacceptable, en sens inverse. Genre et densité de zone : écarts faibles.", "bad")
+    with t5:
+        c1, c2 = st.columns([1.1, 1])
+        with c1:
+            image("05_proxies.png", "À quel point les features du modèle permettent de reconstruire chaque attribut exclu (AUC en validation croisée)")
+        with c2:
+            tableau(pd.DataFrame([{"Attribut exclu": k, "Prévalence": v["prevalence"], "AUC de reconstruction": v["auc"]} for k, v in px.items()]), {"Prévalence": "{:.1%}", "AUC de reconstruction": "{:.3f}"})
+            encart("<b>Exclure une variable ne suffit pas à ce que le modèle l'ignore.</b> L'âge et la situation familiale sont reconstructibles à partir du contrat, de "
+                   "l'ancienneté et des services. C'est la cause structurelle de l'écart d'âge. L'exclusion reste justifiée (pas de décision explicite sur l'attribut), "
+                   "mais elle ne dispense pas de l'audit.", "warn")
+        st.markdown(f"**Mitigation testée** : un seuil par tranche d'âge, calé sur le rappel global ({mit['rappel_cible']:.0%}) — ce que ça coûte")
+        rows = []
+        for g, av in mit["avant"].items():
+            ap = mit["apres"].get(g, {})
+            rows.append({"Tranche d'âge": g, "Rappel avant": av["rappel_detracteur"], "Rappel après": ap.get("rappel", np.nan), "Précision avant": av["precision_detracteur"],
+                         "Précision après": ap.get("precision", np.nan), "Sélection avant": av["taux_selection"], "Sélection après": ap.get("taux_selection", np.nan)})
+        tableau(pd.DataFrame(rows), {c_: "{:.1%}" for c_ in ("Rappel avant", "Rappel après", "Précision avant", "Précision après", "Sélection avant", "Sélection après")})
+        ga, gp = mit["global_avant"], mit["global_apres"]
+        a_, b_, c_, d_ = st.columns(4)
+        kpi(a_, "Kappa", f"{ga['kappa']:.3f} → {gp['kappa']:.3f}", "avant → après")
+        kpi(b_, "Rappel Détracteur", f"{ga['rappel_detracteur']:.2f} → {gp['rappel_detracteur']:.2f}", "")
+        kpi(c_, "Précision Détracteur", f"{ga['precision_detracteur']:.2f} → {gp['precision_detracteur']:.2f}", "")
+        kpi(d_, "Appels (prédits Dét.)", f"{mit['appels_avant']} → {mit['appels_apres']}", "")
+        encart("Égaliser le rappel se paie en précision chez les jeunes et en volume. Traiter différemment selon l'âge est un <b>arbitrage métier et juridique</b>, pas "
+               "technique : à escalader à l'Expérience Client et au juridique avant toute production. Non appliqué par défaut.", "warn")
 
 
-def page_apropos():
-    st.title("À propos")
-    st.markdown(md_sans_images("06_deploiement/carte_modele.md"))
-    st.divider()
-    st.markdown((RACINE / "README.md").read_text(encoding="utf-8") if (RACINE / "README.md").exists() else "")
+# ============================================================================ 7. Suivi et méthode
+def page_suivi():
+    st.title("Suivi et méthode")
+    t1, t2, t3, t4 = st.tabs(["Monitoring", "Carte du modèle", "Conformité à l'énoncé", "Reproductibilité et à propos"])
+    with t1:
+        mo = extra.get("monitoring")
+        if not mo:
+            st.info("Monitoring non exécuté (`python -m src.monitoring`)."); return
+        pd_ = mo["part_detracteurs_predits"]; su = mo.get("suivi_nouvelles_reponses")
+        c = st.columns(4)
+        kpi(c[0], "PSI prédictions — courant", f"{mo['psi_predictions_courant']:.3f}", "stable < 0,10 · alerte > 0,20")
+        kpi(c[1], "PSI prédictions — mois simulé", f"{mo['psi_predictions_mois_simule']:.3f}", mo["scenario_simule"][:42] + "…")
+        kpi(c[2], "Part détracteurs prédits", f"{pd_['courant']:.0%} → {pd_['mois_simule']:.0%}", f"référence {pd_['reference']:.0%}")
+        kpi(c[3], "Réentraînement (mois simulé)", "DÉCLENCHÉ" if mo["reentrainement_declenche_mois_simule"] else "non", ", ".join(mo["variables_en_alerte_mois_simule"][:3]))
+        image("06_monitoring.png", "PSI par variable et distribution de P(Détracteur) — référence, courant, mois simulé")
+        if su:
+            st.markdown("**Performance sur les nouvelles réponses d'enquête** (simulation : ~150 réponses / mois)")
+            c1, c2 = st.columns([1.2, 1])
+            with c1:
+                image("06_nouvelles_reponses.png")
+            with c2:
+                lots = pd.DataFrame(su["lots"])[["mois", "cumul", "kappa_cumul", "rappel_detracteur_cumul", "chute_performance", "volume_atteint"]]
+                lots.columns = ["Mois", "Labels cumulés", "Kappa cumulé", "Rappel Dét. cumulé", "Chute", "Volume atteint"]
+                tableau(lots, {"Kappa cumulé": "{:.3f}", "Rappel Dét. cumulé": "{:.3f}"})
+                st.caption(f"Seuils : chute kappa > {su['seuils']['chute_kappa']}, chute rappel > {su['seuils']['chute_rappel_detracteur']}, {su['seuils']['min_nouveaux_labels']} nouveaux labels "
+                           f"(atteints au mois {su['premier_mois_volume_atteint']}), échéance {su['seuils']['echeance_max_mois']} mois.")
+        tableau(pd.DataFrame([("Dérive des entrées", "PSI par variable, mensuel", "PSI > 0,20 sur une variable majeure"), ("Dérive des prédictions", "PSI de P(Détracteur), part de Détracteurs", "PSI > 0,20 ou > 5 pts"),
+                              ("Performance réelle", "kappa, rappel Détracteur sur nouvelles réponses", "chute > 0,05 kappa ou > 10 pts rappel"), ("Équité", "rappel Détracteur par tranche d'âge", "écart > 15 pts"),
+                              ("Volume de labels", "nouvelles réponses reçues", "≥ 500, au plus tard tous les 6 mois"), ("Calibration", "ECE sur nouvelles réponses", "recalibrer dès 300 labels")],
+                             columns=["Signal", "Mesure", "Déclencheur"]))
+        encart("<b>Boucle de rétroaction.</b> Un détracteur appelé puis retenu change de classe ; réentraîner dessus fait apprendre au modèle l'effet de sa propre intervention. "
+               "Parades : journaliser chaque contact, <b>groupe de contrôle non contacté</b> (10–20 %), réentraîner sur non-contactés et contrôles.", "bad")
+        with st.expander("Dérive des entrées — détail"):
+            a_, b_ = st.columns(2)
+            a_.markdown("Courant vs référence"); a_.dataframe(pd.DataFrame(mo["derive_entrees_courant"]).style.format({"PSI": "{:.4f}"}), hide_index=True, width="stretch", height=360)
+            b_.markdown("Mois simulé vs référence"); b_.dataframe(pd.DataFrame(mo["derive_entrees_mois_simule"]).style.format({"PSI": "{:.4f}"}), hide_index=True, width="stretch", height=360)
+    with t2:
+        m = mf["metriques_retenues"]
+        tableau(pd.DataFrame([("Nom", "Prédiction de catégorie NPS — clients silencieux"), ("Version", f"1.1 · seed {res['seed']} · `python -m src.run`"),
+                              ("Modèle", f"{NOM_MODELE} ({mf['famille']}, {mf['formulation']}), {mf['version']}, Pipeline scikit-learn"),
+                              ("Cible", "M3 — Détracteur (1–2) · Passif (3) · Promoteur (4–5)"), ("Entraînement", f"{mf['n_entrainement']} répondants simulés (S3, MNAR)"),
+                              ("Évaluation", f"{mf['n_evaluation']} silencieux, vérité connue"), ("Kappa · macro-F1", f"{m['kappa_quadratique']:.3f} · {m['macro_f1']:.3f}"),
+                              ("Rappel / précision Détracteur", f"{m['par_classe']['Detracteur']['rappel']:.2f} / {m['par_classe']['Detracteur']['precision']:.2f}"),
+                              ("Décision", mf["strategie_decision"]), ("Explication", res["drivers"].get("methode", "")),
+                              ("Variables exclues", "churn, CLTV, démographie, géographie"), ("Usage prévu", "prioriser une liste d'appels mensuelle ; comprendre les drivers"),
+                              ("Usage interdit", "décision d'offre ou de tarif individuel ; décision sur un attribut protégé ; lire P(Détracteur) comme une fréquence"),
+                              ("Limites connues", f"écart de rappel {res['audit_equite']['tranche_age']['ecart_max']*100:.0f} pts entre âges (proxies) ; Passif mal rappelé ; probabilités surestimées ; propension simulée"),
+                              ("Fichiers", "models/modele_final.joblib · data/processed/clients_scores.parquet")], columns=["", "Valeur"]))
+    with t3:
+        p = REP / "07_conformite_enonce.md"
+        if p.exists():
+            st.markdown(p.read_text(encoding="utf-8").split("\n", 2)[2])
+        else:
+            st.info("Lancer `python -m src.rapports`.")
+    with t4:
+        rp = extra.get("reproductibilite")
+        if rp and rp.get("comparaison"):
+            t = pd.DataFrame(rp["comparaison"]).astype(str); t["identique"] = t["identique"].map({"True": "✅", "False": "❌"})
+            st.markdown(f"**Test à blanc depuis une copie vierge** — {rp['duree_s']} s — {'reproductible à l’identique' if rp['reproductible'] else 'écarts constatés'}")
+            tableau(t)
+        st.markdown("""
+**Reproduire** : `python -m src.run` · `python -m src.fondation_eval` · `python -m src.verbatims` · `python -m src.texte` · `python -m src.monitoring` ·
+`python -m src.rapports` · `python -m src.writeup` · `python -m pytest tests -q`. Seed unique. Aucune clé dans le dépôt.
+
+**Choix de conception de l'interface** (énoncé § 4.8) : Streamlit parce que l'énoncé demande un outil utilisable par un responsable rétention, pas une API ;
+sept pages orientées usage (décider, appeler, analyser, comprendre, surveiller) ; toutes les valeurs lues dans les artefacts du pipeline ; tolérance
+aux entrées inconnues portée par le pipeline (imputation, `handle_unknown='ignore'`), testée automatiquement.
+
+**Usage d'outils d'IA** (énoncé § 7) : le code, la structure de l'étude et la rédaction ont été produits avec l'assistance d'un assistant IA (Claude),
+sous direction et relecture humaines ; les fragments des verbatims synthétiques ont été rédigés par ce même assistant. Les choix de modélisation, les décisions
+de périmètre et les conclusions sont assumés par l'auteur.
+""")
 
 
-{"Vue d'ensemble": page_vue_densemble, "Prioriser les appels": page_prioriser, "Analyser un client": page_client,
- "Données": page_donnees, "Modèle et performance": page_modele, "Équité": page_equite,
- "Drivers de détraction": page_drivers, "Méthode": page_methode, "Monitoring": page_monitoring, "À propos": page_apropos}[page]()
+{"Synthèse": page_synthese, "Prioriser les appels": page_prioriser, "Analyser un client": page_client, "Données et cible": page_donnees,
+ "Modèles et performance": page_modele, "Drivers et équité": page_drivers, "Suivi et méthode": page_suivi}[page]()

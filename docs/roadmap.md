@@ -9,26 +9,26 @@ Documents liés : `comprehension_du_probleme.md` (le métier), `etat_de_l_art.md
 
 ---
 
-## État d'avancement au 17/09
+## État d'avancement au 17/09 (révision 2 — livraison)
 
 | Étapes | Phase | Statut | Où |
 |---|---|---|---|
-| 1 – 3 | Business understanding | ✅ fait | `reports/01_comprehension_metier.md` |
-| 4 – 8 | Data understanding | ✅ fait | `reports/02_donnees/` (dictionnaire, qualité, EDA, registre de fuites) |
-| 9 – 12, 14 – 15 | Data preparation | ✅ fait | `reports/03_preparation/` |
+| 1 – 3 | Business understanding | ✅ | `reports/01_comprehension_metier.md` |
+| 4 – 8 | Data understanding | ✅ | `reports/02_comprehension_donnees.md` ; `notebooks/01_exploration_et_cible.ipynb` |
+| 9 – 12, 14 – 15 | Data preparation | ✅ — cible arbitrée, 9 dérivées justifiées, déséquilibre comparé (5 stratégies) | `reports/03_preparation_donnees.md` |
 | 13 | Verbatims synthétiques | ⚠️ fait **sans API** — générateur local seedé, chemin API prêt | `src/verbatims.py`, `prompts/verbatim_v1.txt` |
-| 16 – 19, 21 – 24 | Modeling | ✅ fait | `reports/04_modelisation/` |
-| 20 | TabPFN | ⛔ **bloqué** — dépôt Hugging Face soumis à acceptation ; script prêt | `src/tabpfn_eval.py`, `reports/04_modelisation/tabpfn.md` |
-| 25 – 32 | Evaluation | ✅ fait | `reports/05_evaluation/` |
-| 33 – 34 | Persistance, Streamlit | ✅ fait — 10 pages | `models/`, `app/app.py` |
-| 35 | Captures | ✅ fait — 10 captures Selenium | `reports/captures/` |
-| 36 | Monitoring | ✅ **implémenté** (PSI, mois simulé, déclencheur) | `src/monitoring.py` |
-| 37 | Write-up | ✅ fait — 4 pages | `livrable/write_up.pdf` |
-| 38 | Reproductibilité | ✅ tests (`pytest`) + test à blanc depuis copie vierge | `tests/`, `reports/reproductibilite.json` |
+| 16 – 19, 21 – 24 | Modeling | ✅ — **15 modèles, 7 familles**, 3 formulations ; sélection par CV sur les répondants (IPW) + parcimonie, sans regarder le test | `reports/04_modelisation.md` |
+| 20 | Modèles de fondation | ✅ **TabICL évalué** ; ⛔ TabPFN bloqué (dépôt Hugging Face à accès contrôlé) | `src/fondation_eval.py` |
+| 25 – 32 | Evaluation | ✅ — + NPS simulé des silencieux, bruit d'étiquettes, ablation, drivers par segment, proxies, mitigation | `reports/05_evaluation.md` |
+| 33 – 34 | Persistance, Streamlit | ✅ — 7 pages, contenu curé | `models/`, `app/app.py` |
+| 35 | Captures | ✅ — 7 captures Selenium | `reports/captures/` |
+| 36 | Monitoring | ✅ — PSI, mois simulé, **performance sur nouvelles réponses**, 4 déclencheurs | `src/monitoring.py` |
+| 37 | Write-up | ✅ — write-up 3–6 pages + étude complète en annexe | `livrable/write_up.pdf`, `livrable/etude_complete.pdf` |
+| 38 | Reproductibilité | ✅ tests (`pytest`, 40+) + test à blanc depuis copie vierge | `tests/`, `reports/reproductibilite.json` |
+| — | Conformité à l'énoncé | ✅ matrice exigence → réponse → emplacement | `reports/07_conformite_enonce.md` |
 
-Écarts avec le plan initial, assumés : pas de notebook EDA (les figures et l'analyse sont dans
-`reports/02_donnees/`, régénérables par `src/rapports.py`) ; la comparaison LightGBM/CatBoost de
-second rang n'a pas été menée (HGB réglé reste derrière la logistique, la hiérarchie est nette).
+Écarts avec le plan initial : la comparaison « de second rang » LightGBM/CatBoost/XGBoost est devenue un
+catalogue complet de quinze modèles (demande du client) ; le notebook EDA est livré.
 
 ---
 

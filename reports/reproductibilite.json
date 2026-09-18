@@ -1,57 +1,69 @@
 {
+  "duree_s": 1336.3,
   "retour": 0,
-  "duree_s": 291,
-  "sortie_fin": "nu par la mesure : baseline_logistique\n[4b/7] Hyperparamètres\n   baseline_logistique  kappa défaut 0.370 -> réglé 0.369\n   boosting_hgb         kappa défaut 0.343 -> réglé 0.365\n   effet IPW : kappa 0.370 -> 0.369 (sans IPW)\n   stratégie de décision : hybride\n[5/7] Audit d'équité\n[6/7] Interprétabilité SHAP\n[7/7] Persistance\n\nTerminé en 288.1 s — reports/resultats.json, models/modele_final.joblib\n",
-  "erreur_fin": "",
+  "repertoire": "C:\\Users\\moi\\AppData\\Local\\Temp\\nps_repro_qdaf_fmu",
   "comparaison": [
     {
       "indicateur": "NPS M1",
       "original": -42.0,
-      "copie_vierge": -42.0,
+      "copie": -42.0,
       "identique": true
     },
     {
       "indicateur": "NPS M3",
       "original": 21.3,
-      "copie_vierge": 21.3,
+      "copie": 21.3,
       "identique": true
     },
     {
-      "indicateur": "part 3 -> detracteur",
+      "indicateur": "part des 3 -> détracteur",
       "original": 0.2788,
-      "copie_vierge": 0.2788,
+      "copie": 0.2788,
       "identique": true
     },
     {
-      "indicateur": "modele retenu",
-      "original": "baseline_logistique",
-      "copie_vierge": "baseline_logistique",
+      "indicateur": "modèle retenu",
+      "original": "logistique_ordinale",
+      "copie": "logistique_ordinale",
       "identique": true
     },
     {
-      "indicateur": "kappa final",
-      "original": 0.36964924072254335,
-      "copie_vierge": 0.36964924072254335,
+      "indicateur": "version retenue",
+      "original": "réglée",
+      "copie": "réglée",
+      "identique": true
+    },
+    {
+      "indicateur": "kappa final (silencieux)",
+      "original": 0.384446,
+      "copie": 0.384446,
       "identique": true
     },
     {
       "indicateur": "macro-F1 final",
-      "original": 0.4969874449521811,
-      "copie_vierge": 0.4969874449521811,
+      "original": 0.490177,
+      "copie": 0.490177,
       "identique": true
     },
     {
-      "indicateur": "precision@K",
-      "original": 0.488,
-      "copie_vierge": 0.488,
+      "indicateur": "précision@K",
+      "original": 0.512,
+      "copie": 0.512,
       "identique": true
     },
     {
-      "indicateur": "ecart equite age",
-      "original": 0.2471,
-      "copie_vierge": 0.2471,
+      "indicateur": "NPS silencieux prédit",
+      "original": 3.6,
+      "copie": 3.6,
+      "identique": true
+    },
+    {
+      "indicateur": "écart d'équité (âge)",
+      "original": 0.2558,
+      "copie": 0.2558,
       "identique": true
     }
   ],
-  "reproductible": true
+  "reproductible": true,
+  "note_duree": "durée du pipeline sur la copie vierge (l'horloge murale incluait une mise en veille de la machine)"
 }
