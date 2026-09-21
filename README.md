@@ -8,6 +8,7 @@ priorisée, les drivers de détraction et une estimation du NPS des silencieux.
 
 | Pour | Document |
 |---|---|
+| Présenter devant un jury | **[livrable/soutenance.pdf](livrable/soutenance.pdf)** (22 diapositives, CRISP-DM) + [notes d'oral et questions anticipées](livrable/soutenance_notes.md) |
 | Décider en 10 minutes | **[livrable/write_up.pdf](livrable/write_up.pdf)** (6 pages) ou [reports/00_synthese.md](reports/00_synthese.md) |
 | Vérifier que rien de l'énoncé n'a été oublié | [reports/07_conformite_enonce.md](reports/07_conformite_enonce.md) |
 | Suivre la méthode, phase par phase | [reports/README.md](reports/README.md) → un document par phase CRISP-DM |
@@ -28,6 +29,7 @@ python -m src.texte                      # modèle texte et fusion
 python -m src.monitoring                 # dérive PSI, nouvelles réponses, déclencheurs
 python -m src.rapports                   # l'étude : 8 documents, ~22 figures dans reports/
 python -m src.writeup                    # livrable/write_up.pdf et livrable/etude_complete.pdf
+python -m src.soutenance                 # livrable/soutenance.pdf (22 diapos) + notes d'oral
 python scripts/notebook_eda.py           # notebook exécuté
 python -m pytest tests -q                # tests d'invariants (données, fuites, cible, protocole, 15 modèles, sélection, app)
 python -m streamlit run app/app.py       # puis python scripts/captures.py pour les captures
