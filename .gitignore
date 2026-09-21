@@ -4,9 +4,7 @@
 # Données et artefacts régénérables (python -m src.run)
 data/raw/*.xlsx
 data/interim/
-data/processed/*.parquet
-!data/processed/verbatims.parquet
-models/*.joblib
+# Livrables exigés par l'énoncé (§ 6) : dataset dérivé, verbatims, artefact de modèle — versionnés (< 1 Mo)
 
 # Python
 __pycache__/
