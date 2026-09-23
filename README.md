@@ -116,7 +116,6 @@ reports/               l'étude, les figures, les captures, les résultats bruts
 livrable/              write_up.pdf, etude_complete.pdf
 notebooks/             notebook d'exploration, exécuté
 tests/                 53 tests
-docs/                  cadrage, plan de travail, état de l'art
 ```
 
 ## Usage d'outils d'IA
