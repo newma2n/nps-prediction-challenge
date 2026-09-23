@@ -76,8 +76,6 @@ Telco_customer_churn_status.xlsx
 ```
 
 Source : [IBM Accelerator Catalog](https://community.ibm.com/community/user/blogs/steven-macko/2019/07/11/telco-customer-churn-1113).
-La version Kaggle `WA_Fn-UseC_-Telco-Customer-Churn.csv` ne convient pas : elle n'a pas la colonne
-`Satisfaction Score`.
 
 ## Arborescence
 
@@ -107,7 +105,7 @@ tests/                 53 tests
 
 ## Usage d'outils d'IA
 
-Le code, la structure de l'étude et la rédaction ont été produits avec l'assistance de Claude, sous
-direction et relecture humaines. Les verbatims synthétiques ont été rédigés par ce même assistant,
-et la source de chaque texte est tracée dans le fichier livré. Les choix de modélisation, le
-périmètre et les conclusions sont assumés par l'auteur.
+Le code et la rédaction ont été produits avec l'assistance de Claude, sous direction et relecture
+humaines. Les verbatims synthétiques ont été rédigés par ce même assistant, et la source de chaque
+texte est tracée dans le fichier livré. Les choix de modélisation, le périmètre et les conclusions
+sont assumés par l'auteur.
