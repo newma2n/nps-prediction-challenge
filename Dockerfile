@@ -51,7 +51,6 @@ COPY data/processed/ ./data/processed/
 COPY reports/ ./reports/
 COPY livrable/ ./livrable/
 COPY prompts/ ./prompts/
-COPY docs/ ./docs/
 COPY README.md ./
 
 # Exécution sans privilèges : rien dans ce conteneur n'a besoin de root.
