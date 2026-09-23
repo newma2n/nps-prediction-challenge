@@ -428,12 +428,9 @@ def main() -> dict:
         except Exception as e:
             R["desequilibre"]["strategies"].append({"strategie": lib, "erreur": f"{type(e).__name__}: {str(e)[:120]}"})
 
-    # Bruit d'étiquettes (§ 4.1 : « adding realistic noise »). On corrompt une part des étiquettes
-    # d'entraînement et on mesure la dégradation sur les silencieux (dont les étiquettes restent
-    # vraies). Deux bruits, et la distinction compte : le bruit ORDINAL est le seul réaliste pour
-    # une note — un promoteur mal mesuré devient passif bien plus souvent que détracteur, et les
-    # clients à satisfaction 3 sont les plus exposés ; le bruit UNIFORME est conservé comme borne
-    # pessimiste (toutes les erreurs équiprobables, y compris promoteur vers détracteur).
+    # On corrompt une part des étiquettes d'entraînement et on mesure la dégradation sur les
+    # silencieux. Le bruit ordinal est le seul réaliste pour une note : un promoteur mal mesuré
+    # devient passif plus souvent que détracteur. Le bruit uniforme sert de borne pessimiste.
     R["bruit_etiquettes"] = []
     R["bruit_etiquettes_note"] = ("bruit ordinal : 80 % des bascules vont vers une classe adjacente, 20 % vers l'opposée, et un "
                                   "client à satisfaction 3 est trois fois plus exposé qu'un autre. Le bruit uniforme, borne "
@@ -465,9 +462,7 @@ def main() -> dict:
         "− Offer et a_recu_offre": ([c for c in num if c != "a_recu_offre"], [c for c in cat if c != "Offer"]),
         "− Contract": (num, [c for c in cat if c != "Contract"]),
     }
-    # [équité] Ablation ciblée : que coûte le retrait des variables qui reconstruisent le mieux
-    # l'âge ? Sans ce chiffre, « le modèle retrouve l'âge » reste un constat sans suite ; avec lui,
-    # l'arbitrage performance / non-discrimination est posé en nombres.
+    # Ce que coûte le retrait des variables qui reconstruisent le mieux l'âge.
     try:
         from sklearn.linear_model import LogisticRegression as _LR
         _prep_p = construire_modeles(num, cat, seed, ["logistique"])["logistique"].named_steps["preparation"].fit(X[rep])
@@ -587,16 +582,10 @@ def main() -> dict:
                                "croisée : 0,5 = aucune information, 1 = attribut entièrement reconstructible. Les variables qui le "
                                "reconstruisent sont nommées pour que leur retrait soit chiffrable — voir l'ablation « − top-3 proxies d'âge ».")
 
-    # Mitigation testée : un seuil de décision par tranche d'âge. Deux points de méthode, tous deux
-    # nécessaires pour que le chiffre annoncé soit celui qu'on obtiendra en production.
-    #  (1) Les seuils sont calibrés SUR LES RÉPONDANTS puis appliqués aux silencieux. Les calibrer
-    #      sur les silencieux eux-mêmes égaliserait les rappels par construction : on mesurerait
-    #      l'ajustement, pas la mitigation. La variante in-sample est calculée quand même, pour
-    #      montrer l'écart entre la promesse théorique et le résultat réel.
-    #  (2) Deux politiques sont chiffrées, parce qu'elles ne coûtent pas la même chose : le
-    #      « nivellement » ramène tous les groupes au rappel global — ce qui ABAISSE la couverture
-    #      des groupes aujourd'hui les mieux servis ; le « rattrapage » ne relève que le groupe le
-    #      moins bien servi, au prix d'appels supplémentaires. L'arbitrage revient au métier.
+    # Seuil de décision par tranche d'âge. Les seuils sont appris sur les répondants puis appliqués
+    # aux silencieux : les caler sur les silencieux égaliserait les rappels par construction. La
+    # variante in-sample est calculée pour montrer cet écart. Deux politiques sont chiffrées,
+    # nivellement et rattrapage ; l'arbitrage revient au métier.
     rappel_global = R["modele_final"]["metriques_retenues"]["par_classe"]["Detracteur"]["rappel"]
     avant = {g: v for g, v in R["audit_equite"].get("tranche_age", {}).get("groupes", {}).items()}
     ages_rep = pd.cut(df.loc[rep, "Age"], [0, 30, 45, 60, 120], right=False,
@@ -637,18 +626,10 @@ def main() -> dict:
         "global_apres": resume(metriques(y[sil], pred_niv, proba_sil, classes)),
         "appels_avant": int((pred_sil == "Detracteur").sum()), "appels_apres": int((pred_niv == "Detracteur").sum())}
 
-    # Drivers : contributions à la classe Détracteur, agrégées par variable d'origine, globales et
-    # par segment. Trois précautions, toutes nécessaires pour que le tableau dise ce qu'il montre :
-    #  - les colonnes one-hot d'une même variable sont SOMMÉES avant tout classement, sinon
-    #    `Online Security_No` et `Online Security_Yes` figurent comme deux variables opposées ;
-    #  - le sens d'un driver dépend de la NATURE de la variable. Ni la corrélation valeur ↔
-    #    contribution (±1 par construction pour un modèle additif), ni la contribution moyenne
-    #    (≈ 0 pour une variable numérique standardisée) ne le donnent. Pour une numérique on prend
-    #    le signe de moyenne(valeur × contribution) ; pour une catégorielle on nomme la modalité
-    #    qui pousse et celle qui protège ;
-    #  - le modèle retenu est additif : un coefficient ne change pas d'un segment à l'autre. Un
-    #    « driver de segment » est un effet de composition, pas un effet propre — et la variable
-    #    qui définit le segment est retirée de son propre classement.
+    # Contributions à la classe Détracteur, agrégées par variable d'origine : les colonnes one-hot
+    # d'une même variable sont sommées, sinon ses modalités apparaissent comme des variables
+    # opposées. Le sens dépend de la nature de la variable : signe de moyenne(valeur × contribution)
+    # pour une numérique, modalité la plus à risque pour une catégorielle.
     contributions_clients = None
     try:
         C_brut, methode = contributions_detracteur(final, X[sil], seed)
@@ -705,10 +686,7 @@ def main() -> dict:
                 continue
             colonnes = [c for c in sub.columns if c not in definissantes and float(sub[c].std()) > 1e-12]
             top = sub[colonnes].abs().mean().sort_values(ascending=False).head(8)
-            # On ne publie PAS de « sens » propre au segment : le modèle est additif, le sens d'une
-            # variable y est le même partout, et une moyenne de contributions sur une variable
-            # numérique standardisée ne mesure de toute façon rien. Ce qui varie d'un segment à
-            # l'autre, et qui est donc seul publié ici, c'est le POIDS de la variable.
+            # Pas de sens propre au segment : le modèle est additif, seul le poids varie.
             par_segment[lib] = {"clients": int(len(sub)), "variables_exclues": definissantes,
                                 "drivers": {v: {"importance": round(float(top[v]), 4),
                                                 "sens_global": sens.get(v, "—")}
@@ -772,10 +750,8 @@ def main() -> dict:
         "avertissement": ("heuristique dérivée des drivers — donc d'associations, pas d'un effet causal mesuré. Un levier est une "
                           "hypothèse à tester en campagne, avec groupe de contrôle (10 à 20 % des ciblés non appelés).")}
 
-    # [18] Sensibilité au mapping de la cible, calculée ici et non à la rédaction du rapport : le
-    # modèle RETENU est réajusté sous M1, M2 et M3 sur les mêmes répondants, et l'on regarde ce qui
-    # bouge. Les kappas ne sont PAS comparables d'un mapping à l'autre (la tâche change) ; ce qui se
-    # compare est le SENS des effets et l'effet métier.
+    # Le modèle retenu est réajusté sous M1, M2 et M3 sur les mêmes répondants. Les kappas ne se
+    # comparent pas d'un mapping à l'autre ; seuls le sens des effets et l'effet métier le peuvent.
     try:
         coefs, effet = {}, {}
         for mp in ("M1", "M2", "M3"):
@@ -799,8 +775,7 @@ def main() -> dict:
     except Exception as e:
         R["sensibilite_mapping"] = {"erreur": f"{type(e).__name__}: {str(e)[:200]}"}
 
-    # [1] Critères de succès chiffrés AVANT la modélisation (config.yaml) : vérifiés ici, un par un,
-    # pour que la réussite ne se décrète pas après coup.
+    # Critères de succès fixés dans config.yaml avant la modélisation, vérifiés un par un.
     cs = cfg["criteres_succes"]
     eco = R["evaluation_metier"]["economie"]; pk = R["evaluation_metier"]["precision_at_k"]
     rappels_classes = {c: R["modele_final"]["metriques_retenues"]["par_classe"][c]["rappel"] for c in ORDRE}

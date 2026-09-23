@@ -115,10 +115,7 @@ FMT3 = {c: "{:.3f}" for c in ("Kappa", "Macro-F1", "Rappel Dét.", "Rappel Passi
 
 
 # ============================================================================ filtres croisés
-# Un seul jeu de filtres, posé dans la barre latérale, appliqué partout où l'on regarde des
-# clients. C'est ce qui permet à un responsable rétention de croiser « fibre + mensuel + facture
-# > 80 $ + moins de 30 ans » et de lire aussitôt le NPS, le taux de détracteurs et la liste —
-# au lieu de parcourir un tableau de 5 963 lignes.
+# Un seul jeu de filtres, dans la barre latérale, appliqué à toutes les pages montrant des clients.
 CHAMPS_CAT = [("Contract", "Contrat"), ("Internet Type", "Type d'internet"), ("Offer", "Offre reçue"),
               ("prediction", "Classe prédite"), ("tranche_age", "Tranche d'âge"),
               ("levier_recommande", "Levier recommandé"), ("levier_secondaire", "Second levier"),
@@ -173,12 +170,9 @@ def panneau_filtres(base_complete: pd.DataFrame, silencieux_: pd.DataFrame):
             lo, hi = float(d[col].min()), float(d[col].max())
             if lo == hi:
                 continue
-            # Les bornes dépendent du périmètre choisi, donc elles ne peuvent pas être fixées dans
-            # `_defauts()`. On initialise l'état AVANT de créer le widget : passer `value=` en même
-            # temps qu'une `key=` fait lire l'état existant, et un état à None fait échouer la
-            # sérialisation du curseur — ce qui cassait toutes les pages, la barre latérale étant
-            # commune. On borne aussi la valeur mémorisée au périmètre courant, sinon un curseur
-            # réglé sur la base complète devient invalide en repassant aux silencieux.
+            # L'état est initialisé avant la création du widget : avec une `key`, passer `value`
+            # fait lire l'état existant, et un état à None fait échouer la sérialisation du
+            # curseur. La valeur mémorisée est bornée au périmètre courant.
             cle = f"f_{col}"
             cur = st.session_state.get(cle)
             if not isinstance(cur, (tuple, list)) or len(cur) != 2 or cur[0] is None or cur[1] is None:
@@ -467,9 +461,7 @@ def page_client():
     mode = st.radio("Mode", ["Client existant", "Saisie manuelle"], horizontal=True, label_visibility="collapsed")
     X_row, ligne, cid, valeurs = None, None, None, {}
     if mode == "Client existant":
-        # On ne choisit plus un client dans une liste de 7 043 identifiants — personne ne connaît
-        # un client par son identifiant. On part des critères posés à gauche, on voit combien de
-        # clients y répondent, et on en désigne un dans la liste, qui affiche déjà sa prédiction.
+        # Le client se choisit par critères, pas par identifiant.
         if not len(filtre):
             st.warning("Aucun client ne correspond aux filtres. Élargissez-en un dans le panneau de gauche.")
             st.stop()

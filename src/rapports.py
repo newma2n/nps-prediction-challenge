@@ -2394,16 +2394,17 @@ def synthese(cfg, R, arb):
     m = R["modele_final"]["metriques_retenues"]; pk = R["evaluation_metier"]["precision_at_k"]; eco = R["evaluation_metier"]["economie"]
     ns = R["nps_simule"]; eq = R["audit_equite"]["tranche_age"]["groupes"]; mf = R["modele_final"]
     _md("00_synthese.md", f"""
-# Synthèse — Prédire la catégorie NPS des clients silencieux
+# Synthèse
 
-*Pour un lecteur non technique. Chaque chiffre est calculé et retrouvable dans les six documents de l'étude.*
+Ce document s'adresse à un lecteur non technique. Chaque chiffre vient du pipeline et se retrouve
+dans le détail de l'étude.
 
-## Ce qu'on a construit
+## Ce que j'ai construit
 
-Un modèle qui, pour chacun des clients n'ayant pas répondu à l'enquête NPS, estime s'il est
-Détracteur, Passif ou Promoteur ; une application qui en tire une **liste d'appels priorisée** avec,
-pour chaque client, les raisons de la prédiction et le levier à proposer ; une estimation du **NPS des
-85 % silencieux** ; et un dispositif de suivi.
+Un modèle qui estime, pour chaque client n'ayant pas répondu à l'enquête, s'il est Détracteur,
+Passif ou Promoteur. Il alimente une application qui en tire une liste d'appels priorisée, avec pour
+chaque client les raisons de la prédiction et le levier à proposer. J'y ajoute une estimation du NPS
+des 85 % silencieux et un dispositif de suivi.
 
 ## Les cinq chiffres
 
@@ -2417,7 +2418,7 @@ pour chaque client, les raisons de la prédiction et le levier à proposer ; une
 
 ## Les trois résultats à retenir
 
-**1. La grille NPS proposée dans l'énoncé fabrique un résultat faux.** Appliquée telle quelle, elle donne
+**1. La grille NPS proposée dans l'énoncé donne un résultat peu crédible.** Appliquée telle quelle, elle donne
 un NPS de **{arb['nps']['M1']:+.0f}**, à 60–75 points des benchmarks télécom, parce qu'elle classe en détracteurs {arb['n_ambigus']}
 clients « moyennement satisfaits » ({arb['n_ambigus']/7043:.0%} de la base) dont 84 % sont restés fidèles. En demandant aux
 données à qui ces clients ressemblent, on trouve qu'ils penchent à **{arb['part_3_vers_promoteur']:.0%} du côté des promoteurs**. Le NPS

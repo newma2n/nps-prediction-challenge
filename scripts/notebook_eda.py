@@ -41,7 +41,7 @@ from src.features import construire, colonnes_modele, HYPOTHESES_DERIVEES
 from src.target import construire_cibles, nps, ORDRE
 from src.protocol import decouper, diagnostic
 cfg = charger_config(); print("seed :", cfg["seed"])"""),
-    ("md", "## 1. Sources et jointure\n\nCinq tables, jointure interne sur `Customer ID`, population rattachée par `Zip Code`. Porte de contrôle : 7 043 lignes."),
+    ("md", "## 1. Sources et jointure\n\nCinq tables, jointure gauche sur `Customer ID`, population rattachée par `Zip Code`. Deux contrôles : 7 043 lignes, et aucun client sans ligne de services, de statut ou de localisation."),
     ("code", """tables = charger_tables(cfg)
 for k, t in tables.items():
     print(f"{k:14s} {t.shape}")

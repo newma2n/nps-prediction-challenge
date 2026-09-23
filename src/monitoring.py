@@ -102,11 +102,8 @@ def main():
     idx_tous = rng.choice(len(cur), size=150 * 6, replace=False, p=p_rep)
     pred_cur = np.asarray(art["pipeline_decision"].predict(cur[colonnes])).astype(str)
     y_cur = cur["cible_M3"].astype(str).values
-    # L'équité se surveille au même titre que la performance. L'audit de la phase 5 a établi un
-    # écart de rappel Détracteur entre tranches d'âge ; un écart mesuré une fois puis jamais repris
-    # est un constat, pas un garde-fou. On recalcule donc le rappel par tranche d'âge sur les
-    # réponses cumulées de chaque mois, et on lève une alerte dès que l'écart dépasse le seuil de
-    # signalement fixé à l'étape 1 (config.yaml → criteres_succes.ecart_equite_signalement).
+    # Rappel Détracteur par tranche d'âge sur les réponses cumulées, avec alerte au-delà du seuil
+    # de signalement fixé dans config.yaml.
     ages_cur = cur["tranche_age"].astype(str).values
     SEUIL_EQUITE = float(cfg.get("criteres_succes", {}).get("ecart_equite_signalement", 0.10))
     MIN_DETRACTEURS_GROUPE = 10   # en dessous, le rappel d'un groupe n'est pas interprétable

@@ -37,10 +37,8 @@ from .features import pipeline_preparation
 from .models import construire_modeles, entrainer
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-# Sans ce garde-fou, `tabpfn` ouvre un navigateur puis attend une clé API au clavier ; en
-# exécution non interactive sous Windows, l'attente échoue sur `select.select(sys.stdin)` —
-# WinError 10038 — un message qui ne dit rien de la vraie cause. Avec ce garde-fou, la
-# bibliothèque lève une TabPFNLicenseError explicite.
+# Sans ce garde-fou, `tabpfn` attend une clé API au clavier et échoue sur une erreur illisible en
+# exécution non interactive.
 os.environ.setdefault("TABPFN_NO_BROWSER", "1")
 
 DEPOT_TABPFN_V2 = "Prior-Labs/TabPFN-v2-clf"
@@ -123,12 +121,9 @@ def main():
     prep = pipeline_preparation(num, cat, normaliser=True).fit(df.loc[rep, num + cat])
     Xr = np.asarray(prep.transform(df.loc[rep, num + cat]), dtype=np.float32)
 
-    # Les modèles de fondation rejouent tout le jeu d'entraînement à CHAQUE prédiction : sur
-    # processeur, scorer les 5 963 silencieux prend plusieurs minutes par modèle. Comme l'objet de
-    # cette section est de COMPARER des modèles, pas de produire des prédictions de production,
-    # l'évaluation porte sur un échantillon aléatoire fixé par la graine. Le modèle retenu et le
-    # meilleur boosting sont évalués sur EXACTEMENT le même échantillon, donc la comparaison reste
-    # valable ; seule l'incertitude sur chaque chiffre augmente, et la taille est publiée.
+    # Ces modèles rejouent le jeu d'entraînement à chaque prédiction : scorer tous les silencieux
+    # sur processeur prend plusieurs minutes par modèle. L'évaluation porte donc sur un échantillon
+    # fixé par la graine, le même pour tous les modèles comparés.
     N_ECH = int(os.environ.get("NPS_FONDATION_N", "1500"))
     idx_sil = np.flatnonzero(sil)
     if 0 < N_ECH < len(idx_sil):

@@ -1,13 +1,14 @@
-# Synthèse — Prédire la catégorie NPS des clients silencieux
+# Synthèse
 
-*Pour un lecteur non technique. Chaque chiffre est calculé et retrouvable dans les six documents de l'étude.*
+Ce document s'adresse à un lecteur non technique. Chaque chiffre vient du pipeline et se retrouve
+dans le détail de l'étude.
 
-## Ce qu'on a construit
+## Ce que j'ai construit
 
-Un modèle qui, pour chacun des clients n'ayant pas répondu à l'enquête NPS, estime s'il est
-Détracteur, Passif ou Promoteur ; une application qui en tire une **liste d'appels priorisée** avec,
-pour chaque client, les raisons de la prédiction et le levier à proposer ; une estimation du **NPS des
-85 % silencieux** ; et un dispositif de suivi.
+Un modèle qui estime, pour chaque client n'ayant pas répondu à l'enquête, s'il est Détracteur,
+Passif ou Promoteur. Il alimente une application qui en tire une liste d'appels priorisée, avec pour
+chaque client les raisons de la prédiction et le levier à proposer. J'y ajoute une estimation du NPS
+des 85 % silencieux et un dispositif de suivi.
 
 ## Les cinq chiffres
 
@@ -21,7 +22,7 @@ pour chaque client, les raisons de la prédiction et le levier à proposer ; une
 
 ## Les trois résultats à retenir
 
-**1. La grille NPS proposée dans l'énoncé fabrique un résultat faux.** Appliquée telle quelle, elle donne
+**1. La grille NPS proposée dans l'énoncé donne un résultat peu crédible.** Appliquée telle quelle, elle donne
 un NPS de **-42**, à 60–75 points des benchmarks télécom, parce qu'elle classe en détracteurs 2665
 clients « moyennement satisfaits » (38% de la base) dont 84 % sont restés fidèles. En demandant aux
 données à qui ces clients ressemblent, on trouve qu'ils penchent à **72% du côté des promoteurs**. Le NPS

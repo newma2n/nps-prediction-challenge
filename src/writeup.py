@@ -439,8 +439,25 @@ def etude_complete() -> str:
     """Concatène les huit documents de reports/ en un seul Markdown, images en base64."""
     ordre = ["00_synthese.md", "01_comprehension_metier.md", "02_comprehension_donnees.md", "03_preparation_donnees.md",
              "04_modelisation.md", "05_evaluation.md", "06_deploiement.md", "07_conformite_enonce.md"]
-    parties = ["# Étude complète — Prédiction de la catégorie NPS des clients silencieux\n\n"
-               "*Annexe au write-up. Un document par phase CRISP-DM, généré par `python -m src.rapports`.*\n"]
+    parties = ["""# Étude complète
+
+## Prédiction de la catégorie NPS des clients silencieux
+
+Ce document détaille le travail résumé dans le write-up. Il suit les six phases de la démarche
+CRISP-DM et se termine par la correspondance avec l'énoncé, exigence par exigence.
+
+| | |
+|---|---|
+| 1 | Compréhension métier |
+| 2 | Compréhension des données |
+| 3 | Préparation des données |
+| 4 | Modélisation |
+| 5 | Évaluation |
+| 6 | Déploiement |
+| 7 | Conformité à l'énoncé |
+
+Tous les chiffres sont produits par le pipeline et se retrouvent dans `reports/resultats.json`.
+"""]
     for nom in ordre:
         p = REP / nom
         if not p.exists():
