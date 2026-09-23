@@ -1,88 +1,71 @@
 # Prédiction de la catégorie NPS des clients silencieux
 
-Un opérateur télécom n'obtient de réponse à son enquête NPS que de 15 % de ses clients. Ce projet
-estime, pour les 85 % restants, s'ils sont Détracteur, Passif ou Promoteur, en tire une liste
-d'appels priorisée pour l'équipe rétention, identifie les facteurs de détraction et met en place un
-suivi.
+Seuls 15 % des clients répondent à l'enquête NPS. Ce projet estime la catégorie NPS des 85 % qui ne
+répondent pas, en tire une liste d'appels priorisée, identifie les facteurs de détraction et met en
+place un suivi.
 
-## Voir l'application
+## Application
 
-**<https://nps-prediction-challenge.streamlit.app/>**
+<https://nps-prediction-challenge.streamlit.app/>
 
-Rien à installer, rien à configurer. C'est la façon la plus simple de tout voir.
-
-## La lancer chez vous
-
-Avec Docker, en une commande :
+En local, avec Docker :
 
 ```bash
-docker compose up
+docker compose up          # puis http://localhost:8501
 ```
 
-Puis ouvrir <http://localhost:8501>. L'image contient le modèle entraîné, les 7 043 clients scorés
-et les rapports : aucune donnée à télécharger, aucune clé.
-
-Sans Docker, avec Python 3.11 ou 3.12 :
+Ou avec Python 3.11 ou 3.12 :
 
 ```bash
 pip install -r requirements.txt
 streamlit run app/app.py
 ```
 
-⚠️ Python 3.11 ou 3.12, pas plus récent. Le projet impose `numpy < 2`, et numpy 1.26 n'a pas de
-paquet précompilé au-delà de 3.12 : sur 3.13 ou 3.14, l'installation tente de compiler pandas
-depuis les sources et échoue.
+## Documents
 
-## Les deux documents à lire
+- [livrable/write_up.pdf](livrable/write_up.pdf) — 6 pages : approche, construction de la cible,
+  modélisation, évaluation, drivers, limites, suites.
+- [livrable/etude_complete.pdf](livrable/etude_complete.pdf) — le détail par phase CRISP-DM et la
+  correspondance avec l'énoncé.
 
-| Document | Contenu |
+Versions Markdown, figures et résultats bruts dans [reports/](reports/). Captures de l'application
+dans [reports/captures/](reports/captures/).
+
+## Pages de l'application
+
+Filtres croisés valables partout : contrat, accès, offre, classe prédite, âge, levier, ancienneté,
+facture, probabilité, recherche par identifiant.
+
+| Page | Usage |
 |---|---|
-| [livrable/write_up.pdf](livrable/write_up.pdf) | 6 pages. L'approche, la construction de la cible, les décisions de modélisation, l'évaluation, les facteurs de détraction, les limites et la suite. C'est le document à lire en premier. |
-| [livrable/etude_complete.pdf](livrable/etude_complete.pdf) | Le détail complet, une partie par phase CRISP-DM : données, cible, modèles, évaluation, déploiement, et la correspondance point par point avec l'énoncé. |
-
-Les mêmes contenus au format Markdown sont dans [reports/](reports/), avec les figures et les
-résultats bruts en JSON. Les captures de l'application sont dans [reports/captures/](reports/captures/).
-
-## Ce que fait l'application
-
-Huit pages, avec des filtres croisés valables partout : contrat, type d'accès, offre, classe
-prédite, tranche d'âge, levier, ancienneté, facture, probabilité de détraction, recherche par
-identifiant.
-
-- **Synthèse** — les chiffres clés et les trois résultats.
-- **Explorer les clients** — croiser des critères et lire aussitôt le NPS, le taux de détracteurs et
-  la composition de la sélection ; export CSV.
-- **Prioriser les appels** — la liste d'appels du mois, classée par risque, avec le levier et
-  l'économie de la campagne.
-- **Analyser un client** — choisir un client par critères, voir sa prédiction, ce qui pèse pour lui
-  et les deux leviers à activer.
-- **Données et cible**, **Modèles et performance**, **Drivers et équité**, **Suivi et méthode** — le
-  raisonnement derrière les chiffres.
+| Synthèse | les chiffres clés |
+| Explorer les clients | croiser des critères, lire le NPS et la composition de la sélection, exporter |
+| Prioriser les appels | la liste du mois, classée par risque, avec le levier et l'économie |
+| Analyser un client | choisir un client par critères, voir sa prédiction et ses leviers |
+| Données et cible · Modèles et performance · Drivers et équité · Suivi et méthode | le raisonnement derrière les chiffres |
 
 ## Rejouer le calcul
 
-Il faut d'abord les cinq classeurs IBM dans `data/raw/` (voir plus bas), puis :
+Déposer les cinq classeurs IBM dans `data/raw/` (voir ci-dessous), puis :
 
 ```bash
 pip install -r requirements.txt -r requirements-pipeline.txt
 python -m src.run          # données, cible, 15 modèles, sélection, évaluation  (~35 min)
-python -m src.verbatims    # verbatims synthétiques
-python -m src.texte        # modèle texte et fusion
-python -m src.monitoring   # dérive, nouvelles réponses, équité
+python -m src.verbatims
+python -m src.texte
+python -m src.monitoring
 python -m src.rapports     # l'étude et les figures
 python -m src.writeup      # les deux PDF
 python -m pytest tests -q  # 53 tests
 ```
 
-Tout est déterministe : une seule graine, dans `config.yaml`. Aucune clé n'est nécessaire.
-
-Avec Docker, `docker compose --profile pipeline run --rm pipeline` fait la même chose dans un
-environnement figé.
+Une seule graine, dans `config.yaml`. Aucune clé nécessaire. Avec Docker :
+`docker compose --profile pipeline run --rm pipeline`.
 
 ## Données sources
 
-`data/raw/` n'est pas versionné. Il faut y déposer les cinq classeurs du jeu *IBM Telco Customer
-Churn*, version **11.1.3+** :
+`data/raw/` n'est pas versionné. Y déposer les cinq classeurs du jeu *IBM Telco Customer Churn*,
+version 11.1.3+ :
 
 ```
 Telco_customer_churn_demographics.xlsx
@@ -93,16 +76,8 @@ Telco_customer_churn_status.xlsx
 ```
 
 Source : [IBM Accelerator Catalog](https://community.ibm.com/community/user/blogs/steven-macko/2019/07/11/telco-customer-churn-1113).
-
-⚠️ Le fichier Kaggle le plus diffusé, `WA_Fn-UseC_-Telco-Customer-Churn.csv` du compte *blastchar*,
-est la version 2018 : il n'a pas la colonne `Satisfaction Score`, qui est la base de la cible. Il ne
-convient pas.
-
-## Redéployer sur Streamlit Community Cloud
-
-Fichier principal `app/app.py`, **Python 3.11** dans *Advanced settings*, aucun secret.
-`requirements.txt` ne contient que les dépendances de l'interface, pour rester sous la limite de
-ressources de l'hébergement ; le reste est dans `requirements-pipeline.txt`.
+La version Kaggle `WA_Fn-UseC_-Telco-Customer-Churn.csv` ne convient pas : elle n'a pas la colonne
+`Satisfaction Score`.
 
 ## Arborescence
 
@@ -124,7 +99,7 @@ src/                   le pipeline, un module par étape
   writeup.py           génération des PDF
 data/processed/        clients_scores.parquet, verbatims.parquet
 models/                modèle entraîné
-reports/               l'étude, les figures, les captures, les résultats bruts
+reports/               étude, figures, captures, résultats bruts
 livrable/              write_up.pdf, etude_complete.pdf
 notebooks/             notebook d'exploration, exécuté
 tests/                 53 tests
@@ -134,5 +109,5 @@ tests/                 53 tests
 
 Le code, la structure de l'étude et la rédaction ont été produits avec l'assistance de Claude, sous
 direction et relecture humaines. Les verbatims synthétiques ont été rédigés par ce même assistant,
-et la source de chaque texte est tracée dans le fichier livré. Les choix de modélisation, les
-décisions de périmètre et les conclusions sont assumés par l'auteur.
+et la source de chaque texte est tracée dans le fichier livré. Les choix de modélisation, le
+périmètre et les conclusions sont assumés par l'auteur.
