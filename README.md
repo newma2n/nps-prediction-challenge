@@ -5,21 +5,33 @@ estime, pour les 85 % restants, s'ils sont Détracteur, Passif ou Promoteur, en 
 d'appels priorisée pour l'équipe rétention, identifie les facteurs de détraction et met en place un
 suivi.
 
-## Lancer l'application
+## Voir l'application
+
+**<https://nps-prediction-challenge.streamlit.app/>**
+
+Rien à installer, rien à configurer. C'est la façon la plus simple de tout voir.
+
+## La lancer chez vous
+
+Avec Docker, en une commande :
 
 ```bash
 docker compose up
 ```
 
-Puis ouvrir <http://localhost:8501>. Rien d'autre à installer, aucune donnée à télécharger, aucune
-clé. L'image contient le modèle entraîné, les 7 043 clients scorés et les rapports.
+Puis ouvrir <http://localhost:8501>. L'image contient le modèle entraîné, les 7 043 clients scorés
+et les rapports : aucune donnée à télécharger, aucune clé.
 
-Sans Docker :
+Sans Docker, avec Python 3.11 ou 3.12 :
 
 ```bash
 pip install -r requirements.txt
 streamlit run app/app.py
 ```
+
+⚠️ Python 3.11 ou 3.12, pas plus récent. Le projet impose `numpy < 2`, et numpy 1.26 n'a pas de
+paquet précompilé au-delà de 3.12 : sur 3.13 ou 3.14, l'installation tente de compiler pandas
+depuis les sources et échoue.
 
 ## Les deux documents à lire
 
@@ -86,21 +98,9 @@ Source : [IBM Accelerator Catalog](https://community.ibm.com/community/user/blog
 est la version 2018 : il n'a pas la colonne `Satisfaction Score`, qui est la base de la cible. Il ne
 convient pas.
 
-## Déployer en ligne
+## Redéployer sur Streamlit Community Cloud
 
-Sur Streamlit Community Cloud, dans *Advanced settings* au moment du déploiement :
-
-| Champ | Valeur |
-|---|---|
-| Main file path | `app/app.py` |
-| Python version | **3.11** |
-| Secrets | aucun |
-
-⚠️ **La version de Python n'est pas facultative.** Le projet impose `numpy < 2`, et numpy 1.26 n'a
-pas de paquet précompilé au-delà de Python 3.12. Avec 3.13 ou 3.14, l'installation tente de compiler
-pandas depuis les sources et échoue. Si l'application est déjà déployée, la version se change dans
-*Manage app* → *Settings* → *Python version*, puis *Reboot*.
-
+Fichier principal `app/app.py`, **Python 3.11** dans *Advanced settings*, aucun secret.
 `requirements.txt` ne contient que les dépendances de l'interface, pour rester sous la limite de
 ressources de l'hébergement ; le reste est dans `requirements-pipeline.txt`.
 
