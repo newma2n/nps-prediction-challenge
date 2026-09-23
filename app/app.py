@@ -98,6 +98,15 @@ def pct(v, d=0) -> str:
     return f"{v*100:.{d}f} %"
 
 
+def _degrade(styler, colonne: str):
+    """Dégradé de couleur sur une colonne. Il passe par matplotlib : si le paquet manque, on rend
+    le tableau sans dégradé plutôt que de faire tomber la page."""
+    try:
+        return styler.background_gradient(subset=[colonne], cmap="Reds")
+    except ImportError:
+        return styler
+
+
 def tableau(df: pd.DataFrame, fmt: dict | None = None, hauteur: int | None = None):
     kw = {"height": hauteur} if hauteur else {}
     st.dataframe(df.style.format(fmt or {}), hide_index=True, width="stretch", **kw)
@@ -297,7 +306,7 @@ def page_prioriser():
                                       "levier_recommande": "Levier recommandé", "levier_secondaire": "Second levier",
                                       "Tenure in Months": "Ancienneté (mois)", "Monthly Charge": "Facture mens. ($)", "Number of Referrals": "Parrainages"})
     vue["Classe prédite"] = vue["Classe prédite"].map(LIB)
-    st.dataframe(vue.style.format({"P(détracteur)": "{:.1%}", "Facture mens. ($)": "{:.2f}"}).background_gradient(subset=["P(détracteur)"], cmap="Reds"),
+    st.dataframe(_degrade(vue.style.format({"P(détracteur)": "{:.1%}", "Facture mens. ($)": "{:.2f}"}), "P(détracteur)"),
                  hide_index=True, width="stretch", height=430)
     st.download_button("Exporter la liste d'appels (CSV)", liste[cols].to_csv(index=False), file_name=f"appels_prioritaires_top{len(liste)}.csv",
                        mime="text/csv", type="primary")
@@ -388,8 +397,7 @@ def page_explorer():
     for c in ("Classe prédite", "Classe réelle"):
         if c in vue:
             vue[c] = vue[c].map(lambda v: LIB.get(v, v))
-    st.dataframe(vue.style.format({"P(détracteur)": "{:.1%}", "Facture mens. ($)": "{:.2f}", "CLTV": "{:.0f}"})
-                 .background_gradient(subset=["P(détracteur)"], cmap="Reds"),
+    st.dataframe(_degrade(vue.style.format({"P(détracteur)": "{:.1%}", "Facture mens. ($)": "{:.2f}", "CLTV": "{:.0f}"}), "P(détracteur)"),
                  hide_index=True, width="stretch", height=430)
     st.download_button(f"Exporter la sélection ({len(vue)} clients, CSV)", vue.to_csv(index=False),
                        file_name=f"selection_{len(vue)}_clients.csv", mime="text/csv", type="primary")
@@ -478,8 +486,7 @@ def page_client():
             "Levier recommandé": cand["levier_recommande"].values,
         })
         evt = st.dataframe(
-            vue_c.style.format({"P(détracteur)": "{:.1%}", "Facture ($)": "{:.0f}"})
-                 .background_gradient(subset=["P(détracteur)"], cmap="Reds"),
+            _degrade(vue_c.style.format({"P(détracteur)": "{:.1%}", "Facture ($)": "{:.0f}"}), "P(détracteur)"),
             hide_index=True, width="stretch", height=260,
             on_select="rerun", selection_mode="single-row", key="choix_client")
         lignes_sel = evt.selection.rows if hasattr(evt, "selection") else []

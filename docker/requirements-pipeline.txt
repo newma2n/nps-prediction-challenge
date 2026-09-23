@@ -1,6 +1,5 @@
 # Dépendances SUPPLÉMENTAIRES pour rejouer tout le pipeline et régénérer l'étude
 # (docker compose --profile pipeline). S'ajoutent à requirements-app.txt.
-matplotlib==3.8.0
 seaborn==0.13.0
 openpyxl==3.1.2          # lecture des cinq classeurs IBM
 shap==0.49.1
