@@ -17,42 +17,117 @@ traduction : c'est à nous de la construire et de la défendre.
 |---|---|---|---|---|---|
 | **M1** | 1, 2, 3 | 4 | 5 | **-42.0** | mapping baseline de l'énoncé (fidèle à l'échelle : 3/5 ≈ 5/10 = détracteur) |
 | **M2** | 1, 2 | 3, 4 | 5 | **-4.1** | recentré : le 3 est le milieu, donc passif |
-| **M3** | 1, 2 | 3 | 4, 5 | **+21.3** | arbitré par les données (§ 1.2) |
+| **M3** | 1, 2 | 3 | 4, 5 | **+21.3** | **retenu** — le « 3 » arbitré par les données (§ 1.2), le « 4 » reclassé par hypothèse d'échelle (§ 1.3) |
 
 ![](figures/03_cible_mappings.png)
 
 **1.1 Pourquoi M1 pose problème.** M1 est le mapping *fidèle à l'échelle* — et c'est précisément pour
-ça qu'il est faux : une échelle à 5 points compressée dans les bandes NPS envoie 58 % de la base chez
-les détracteurs, dont 2665 clients à « 3 » qui, à 84 %, sont restés. Un NPS de -42 est à 60–75 points des
-benchmarks télécom publiés (+19 à +34 ; sources commerciales, dispersion forte). Ce n'est pas un
+ça qu'il est faux : une échelle à 5 points compressée dans les bandes NPS envoie 58% de la base chez
+les détracteurs, dont 2 665 clients à « 3 » qui, à 84%, sont restés. Un NPS de -42 est à 60–75 points des
+benchmarks télécom publiés (+19 à +34 ; voir la note de sources ci-dessous). Ce n'est pas un
 résultat, c'est un signal d'alerte sur la construction.
+
+> **D'où vient le « +19 à +34 », et ce qu'il vaut.** Trois compilations commerciales de NPS
+> télécom, consultées en septembre 2026 :
+> [CustomerGauge](https://customergauge.com/benchmarks/blog/telecommunications-nps-benchmarks-and-cx-trends),
+> [QuestionPro](https://www.questionpro.com/blog/nps-benchmarks/) et
+> [Survicate](https://survicate.com/nps-benchmarks/). **Pertinence métier** : marché américain, le
+> même que celui du dataset, et NPS relationnel — la même mesure que celle qu'on reconstruit.
+> **Réserves, qui comptent autant que le chiffre** : ce sont des sources d'éditeurs, pas de la
+> littérature relue ; leur dispersion est large (19, 31, 34, voire 54 selon l'éditeur et l'année) ;
+> et notre NPS est calculé sur une satisfaction de 1 à 5, pas sur une intention de recommandation
+> de 0 à 10 (hypothèse 1 de la phase 1). Ce repère sert donc à qualifier M1 d'**implausible**, à
+> l'ordre de grandeur près — jamais à valider un mapping ni à servir de cible.
 
 **1.2 L'arbitrage empirique des « 3 »** (méthode d'Elero et al., 2026, qui l'appliquent aux notes 7 et 8).
 Plutôt que de décider où vont les 2665 clients ambigus, on demande aux données :
 
 1. entraîner un modèle **uniquement sur les extrêmes non ambigus** — satisfaction 1–2 contre 4–5
    (4378 clients), avec les seules features légitimes ;
-2. contrôler qu'il sépare ces extrêmes : **80.1%** d'exactitude en validation croisée — dans la
-   fourchette attendue de la littérature (0,77–0,80), donc sans fuite ;
+2. contrôler qu'il sépare ces extrêmes : **80.1%** d'exactitude en validation croisée, contre
+   **67.1%** pour la classe majoritaire. Le modèle apprend donc quelque chose
+   sans être parfait, ce qui est exactement le comportement attendu. *(Ce n'est pas une preuve
+   d'absence de fuite, et l'ancienne rédaction le laissait croire en comparant ce chiffre à des
+   exactitudes 3 classes de la littérature, qui ne sont pas comparables à un problème binaire. Le
+   test formel de fuite est en phase 4 § 5.)* ;
 3. faire passer les 2665 clients à « 3 », jamais vus, à travers ce modèle.
 
 ![](figures/03_arbitrage_des_3.png)
 
-**Résultat : 27.9% des « 3 » ressemblent à des détracteurs, 72.1% à des promoteurs.** Le bloc rejoint les
-**Passifs**. Le NPS qui en découle (+21.3) tombe dans la fourchette sectorielle — corroboration externe, pas preuve.
+**Résultat : 27.9% des « 3 » ressemblent à des détracteurs**, contre 72.1% qui ressemblent aux 4–5.
+Le bloc rejoint les **Passifs**.
 
-**1.3 Le piège évité — la circularité.** Il était tentant d'étiqueter *chaque* « 3 » par la prédiction
+**La règle de décision, et son asymétrie assumée.** La seule question posée au modèle d'arbitrage
+est : *les clients à 3 sont-ils majoritairement des détracteurs ?* Si la part dépasse
+50%, le bloc rejoint les Détracteurs ; sinon il reste **Passif**. Promoteur n'est
+volontairement **pas** une issue possible, et il faut le dire plutôt que de le laisser deviner : une
+note de 3 sur 5 est le milieu exact de l'échelle, et rien dans le NPS ne permet de promouvoir un
+milieu d'échelle au rang de promoteur. La mesure sert donc à **écarter l'hypothèse de l'énoncé**
+(« ces clients sont des détracteurs »), pas à choisir librement parmi les trois classes ; le
+complément de 72.1% dit que ces clients ressemblent aux 4–5, pas qu'ils en sont.
+
+La décision n'est pas sur le fil : il manque 22.1% de part détractrice pour que le bloc
+bascule. Un test automatisé verrouille cette valeur, parce qu'un glissement silencieux de ce seul
+chiffre changerait le NPS de référence de plus de 60 points.
+
+**1.3 L'autre décision, celle du « 4 » — et d'où viennent vraiment les +63 points.**
+L'arbitrage des « 3 » ne fait pas tout le chemin, et présenter M3 comme « arbitré par les données »
+sans plus de précision laisserait croire le contraire. Le passage de -42.0 à +21.3 se décompose en
+**deux décisions distinctes**, dont une seule est empirique :
+
+| Étape | Décision | Nature | NPS |
+|---|---|---|---|
+| Départ | grille de l'énoncé : 1–2–3 Détracteur, 4 Passif, 5 Promoteur | hypothèse de l'énoncé | **-42.0** |
+| 1 | les 2 665 clients à « 3 » quittent les Détracteurs pour les Passifs | **mesurée** (§ 1.2) | **-4.1** |
+| 2 | les clients à « 4 » passent de Passif à Promoteur | **hypothèse d'échelle**, assumée ici | **+21.3** |
+
+La décision 2 n'est pas mesurée, et voici l'argument qui la porte. Sur une échelle à 5 points, la
+note 4 correspond à « satisfait » et se projette vers 8–9 sur une échelle en 10 points, donc dans la
+bande Promoteur du NPS (9–10) ou à sa frontière immédiate (8 = Passif). Deux éléments font pencher
+vers Promoteur : **aucun** client noté 4 n'a quitté l'opérateur, exactement comme les 5 ; et Elero
+et al. (2026) traitent de la même façon la borne haute de leur échelle. Deux réserves, qui restent
+entières : une échelle à 5 points n'a pas de position pour le « 8 » qui sépare Passif de Promoteur,
+et la note 4 concerne 25% de la base — c'est donc la décision la plus lourde de l'étude après
+celle du « 3 ». La variante prudente, qui laisse le « 4 » chez les Passifs, est **M2** (-4.1) :
+elle est calculée, publiée et incluse dans l'étude de sensibilité (phase 5 § 5.1), précisément pour
+qu'un lecteur qui refuse cette hypothèse puisse lire le travail avec son propre mapping.
+
+**1.4 Le piège évité — la circularité.** Il était tentant d'étiqueter *chaque* « 3 » par la prédiction
 du modèle. Ce serait une faute : la cible deviendrait une fonction des features, et le modèle aval
 réapprendrait sa propre sortie — une circularité cousine de la fuite `Churn Score`. On tranche donc
 **le bloc** par la mesure agrégée, et on conserve la probabilité individuelle comme simple **indicateur
 métier** (« ce passif a un profil de détracteur à X % »), affiché dans l'application, jamais utilisé à
 l'entraînement.
 
-**1.4 Ce que l'énoncé suggérait et qu'on a refusé.** Enrichir la cible par `Churn Value` ou `CLTV`
+**1.5 Ce que l'énoncé suggérait et qu'on a refusé.** Enrichir la cible par `Churn Value` ou `CLTV`
 transformerait le projet en modèle de churn déguisé (phase 2 § 4). Enrichir par l'ancienneté rendrait
-la cible fonction d'une feature (même circularité qu'en 1.3). Le **bruit réaliste** suggéré par
-l'énoncé est traité en phase 5 § 5 comme test de robustesse : on corrompt les étiquettes
-d'entraînement et on mesure la dégradation.
+la cible fonction d'une feature (même circularité qu'en 1.4). Le **bruit réaliste** suggéré par
+l'énoncé est traité en phase 5 § 5.2 comme test de robustesse. Ce bruit est **ordinal**, et ce choix
+est le point de la section : dans une vraie enquête, un promoteur mal mesuré devient passif bien plus
+souvent que détracteur, et ce sont les notes du milieu qui sont les plus fragiles. On bascule donc
+vers une classe adjacente dans 80 % des cas et vers la classe opposée dans 20 %, avec une exposition
+trois fois plus forte pour les clients notés 3. Un bruit uniforme — toutes les erreurs équiprobables,
+y compris promoteur → détracteur — est le moins réaliste possible sur une cible ordonnée ; il est
+conservé en second, comme borne pessimiste.
+
+**1.6 Limites du label construit.** L'énoncé demande explicitement de discuter les limites de la
+cible qu'on fabrique (§ 4.5). Trois, par ordre de gravité.
+
+1. **La satisfaction n'est pas une intention de recommander.** Le NPS mesure la propension à
+   recommander à un tiers, la satisfaction une expérience vécue. Les deux corrèlent, ils ne
+   s'identifient pas. C'est l'hypothèse 1 de la phase 1, et elle est indépassable avec ce dataset.
+2. **La note a probablement été rendue cohérente avec le churn par le producteur du dataset.** Le
+   fait fondateur — 100 % de départs chez les 1–2, 0 % chez les 4–5 — ne s'observe dans aucune
+   enquête réelle. L'interprétation retenue ailleurs dans l'étude (« le churn est une conséquence de
+   l'insatisfaction ») n'est pas la seule compatible : l'hypothèse inverse, une note dérivée du
+   statut de churn, l'est tout autant et nous ne pouvons pas les départager. Conséquence à assumer :
+   notre modèle NPS et un modèle de churn partagent largement leurs drivers, et les performances
+   mesurées ici sont une **borne haute**. Sur de vraies réponses, plus bruitées, il faut s'attendre à
+   une dégradation de l'ordre de celle que mesure le test de bruit d'étiquettes (phase 5 § 5.2).
+3. **Seule la note 3 apporte une information non réductible au churn.** Parmi les 2665 clients à « 3 »,
+   2236 sont restés et les autres sont partis : c'est le seul endroit du jeu où la note et le statut
+   de départ ne se déduisent pas l'un de l'autre. C'est aussi pourquoi l'arbitrage de ce bloc a reçu
+   autant d'attention, et pourquoi la classe Passif est la plus difficile à prédire (phase 5 § 2).
 
 ## 2. Nettoyage
 

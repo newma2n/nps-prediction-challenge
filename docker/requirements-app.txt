@@ -1,0 +1,14 @@
+# Dépendances de l'APPLICATION seule (image par défaut).
+# Volontairement sans torch, tabicl, tabpfn, transformers ni selenium : ces paquets ne servent
+# qu'au bonus « modèles de fondation » et aux captures d'écran, déjà exécutés — leurs résultats
+# sont lus depuis reports/*.json. Les inclure ferait passer l'image de ~0,8 Go à plus de 3 Go
+# sans rien ajouter à ce que l'examinateur peut voir.
+numpy==1.26.4            # doit rester < 2 : pandas 2.1 et shap 0.49 cassent sinon
+pandas==2.1.1
+scipy==1.17.1
+scikit-learn==1.9.1
+pyarrow==24.0.0
+PyYAML==6.0.3
+joblib==1.6.0
+streamlit==1.57.0
+mord==0.7                # nécessaire pour désérialiser le modèle retenu (logistique ordinale)

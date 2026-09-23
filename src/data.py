@@ -35,7 +35,14 @@ def charger_tables(cfg: dict) -> dict[str, pd.DataFrame]:
 
 
 def joindre(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Jointure des 4 tables client sur Customer ID, puis population via Zip Code."""
+    """Jointure des 4 tables client sur Customer ID, puis population via Zip Code.
+
+    Jointure GAUCHE à partir de `demographics` (la table qui définit la population de référence),
+    contrôlée par deux assertions : le nombre de lignes ne bouge pas (aucun doublon créé) et
+    aucun client n'arrive sans ligne de services, de statut ou de localisation (aucune perte
+    silencieuse). Une jointure interne masquerait le second cas en supprimant les clients
+    incomplets ; ici on veut qu'un client incomplet fasse échouer le pipeline.
+    """
     df = tables["demographics"].drop(columns=["Count"])
     for nom in ("location", "services", "status"):
         t = tables[nom].drop(columns=[c for c in ("Count", "Quarter") if c in tables[nom]])
@@ -44,8 +51,12 @@ def joindre(tables: dict[str, pd.DataFrame]) -> pd.DataFrame:
     pop = tables["population"][["Zip Code", "Population"]].drop_duplicates("Zip Code")
     df = df.merge(pop, on="Zip Code", how="left")
 
-    # Porte de contrôle de l'étape 4 : aucune ligne ne doit être perdue.
+    # Portes de contrôle de l'étape 4 : ni ligne perdue ou dupliquée, ni client incomplet.
     assert len(df) == 7043, f"Jointure : {len(df)} lignes au lieu de 7043 — bug de jointure."
+    temoins = {"services": "Tenure in Months", "status": "Satisfaction Score", "location": "Zip Code",
+               "population": "Population"}
+    manquants = {t: int(df[c].isna().sum()) for t, c in temoins.items() if df[c].isna().any()}
+    assert not manquants, f"Jointure : clients sans ligne dans {manquants} — table incomplète."
     return df
 
 

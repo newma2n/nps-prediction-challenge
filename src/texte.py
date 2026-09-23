@@ -37,7 +37,9 @@ def main():
     df = pd.read_parquet(RACINE / "data" / "processed" / "clients_scores.parquet")
     v = pd.read_parquet(RACINE / "data" / "processed" / "verbatims.parquet").set_index("Customer ID")
     df["verbatim"] = df["Customer ID"].map(v["verbatim"])
-    source = str(v["source"].iloc[0])
+    sources = v["source"].value_counts().to_dict()
+    source = " + ".join(f"{k} ({n})" for k, n in sources.items())
+    modele_llm = next((str(x) for x in v["modele"].dropna().unique()), None) if "modele" in v else None
 
     rep = df["repondant_S3"].values; sil = ~rep
     y = df["cible_M3"].astype(str).values
@@ -93,7 +95,7 @@ def main():
                 "rappel_passif": round(m["par_classe"]["Passif"]["rappel"], 4)}
 
     res = {
-        "source_verbatims": source, "n_verbatims": int(df["verbatim"].notna().sum()),
+        "source_verbatims": source, "sources_detail": sources, "modele_llm": modele_llm, "n_verbatims": int(df["verbatim"].notna().sum()),
         "concordance_tonalite_classe": round(conc, 4), "plafond_theorique": round(0.75 + 0.25 / 3, 4),
         "tabulaire_seul": resume(m_tab), "texte_seul": resume(m_txt),
         "fusion_tardive": {"poids_texte": meilleur_w, "grille_poids_cv": grille_w, **resume(m_fus)},

@@ -25,11 +25,26 @@ Résultat par formulation (meilleur modèle de chaque, S3/M3) :
 | classification ordinale | 1 | logistique_ordinale | 0.597 | 0.384 | 0.490 |
 | régression 1-5 puis seuillage | 2 | ridge_seuils | 0.621 | 0.387 | 0.478 |
 
-Lecture : les trois formulations arrivent à des kappas voisins ; celles qui **exploitent l'ordre**
-(ordinale, régression à seuils) sont construites pour la métrique qui respecte l'ordre et en tirent un
-léger avantage, avec un **profil par classe** propre à chacune (rappels Détracteur et Passif dans le
-tableau de sélection, § 6.2). Le choix final se fait sur la mesure (§ 6), et l'évaluation métier
-(phase 5 § 3) vérifie que le classement des appels n'en souffre pas.
+Lecture, en deux temps, parce que les deux colonnes ne disent pas la même chose.
+
+**En validation croisée sur les répondants, les trois formulations sont indiscernables.** Les kappas
+tiennent dans un mouchoir et l'écart-type entre plis est du même ordre que l'écart entre
+formulations : il n'y a rien à conclure de ce tableau seul, et prétendre le contraire serait lire du
+bruit.
+
+**Sur les silencieux, celles qui exploitent l'ordre prennent un avantage — et il est surtout dans le
+profil par classe, pas dans le kappa.** Le gain de kappa est faible ; le vrai écart est le rappel de
+la classe **Passif**, que les formulations ordinales tiennent et que les meilleures formulations
+nominales écrasent. C'est cohérent : le kappa quadratique pénalise peu une erreur d'un cran, donc un
+modèle qui abandonne le milieu de l'échelle peut afficher un bon kappa tout en étant inutilisable pour
+qui veut distinguer un passif d'un détracteur.
+
+⚠️ **La comparaison est asymétrique et il faut le savoir en la lisant** : la colonne « nominale »
+retient le meilleur de douze modèles, la colonne « ordinale » n'en a qu'un seul (mord `LogisticAT`) et
+la régression à seuils deux. Comparer le meilleur de douze à un unique candidat avantage
+mécaniquement le premier — c'est donc une borne **basse** de ce que l'ordre apporte. Le choix final se
+fait sur la mesure (§ 6), et l'évaluation métier (phase 5 § 3) vérifie que le classement des appels
+n'en souffre pas.
 
 ## 2. Protocole de validation 15 % / 85 %
 
@@ -142,9 +157,21 @@ préparation adaptée à chaque famille (phase 3 § 5). **Écartés avec argumen
 | knn | 0.322 | 0.321 | 0.291 | -0.031 |
 | svm_rbf | 0.383 | 0.380 | 0.342 | -0.041 |
 
-Deux lectures. **M3 domine M1 et M2 pour toutes les familles** : la cible arbitrée par les données est
-aussi la plus apprenable. **La performance chute de S1 à S3** pour presque tous les modèles : c'est le
-coût mesuré du biais de non-réponse — le résultat scientifique du protocole.
+Deux lectures, dont une seule est un résultat.
+
+**La chute de S1 à S3 est le résultat scientifique du protocole.** Presque tous les modèles perdent en
+passant d'une non-réponse aléatoire à une non-réponse qui dépend de la satisfaction : c'est le coût
+mesuré du biais de réponse, et il est comparable d'une colonne à l'autre puisque la cible ne change
+pas.
+
+**En revanche, le kappa plus élevé de M3 ne prouve pas que M3 est « la meilleure cible ».** Les
+kappas ne sont **pas comparables entre mappings** : déplacer le milieu ambigu change la difficulté de
+la tâche elle-même, ainsi que la prévalence des classes. Un mapping qui rendrait la cible triviale
+obtiendrait le meilleur kappa sans rien démontrer. Ce tableau se lit donc **colonne par colonne**
+(quel modèle pour un mapping donné), jamais ligne par ligne pour départager les mappings. Ce qui
+justifie M3 est ailleurs : l'arbitrage empirique du bloc des « 3 » (phase 3 § 1.2), l'hypothèse
+d'échelle explicite sur le « 4 » (phase 3 § 1.3), et la **stabilité du sens des effets** d'un mapping
+à l'autre (phase 5 § 5.1).
 
 ## 5. Porte de contrôle : y a-t-il une fuite ?
 
@@ -187,8 +214,31 @@ surajuster la recherche dépasse vite le gain. La version réglée n'est retenue
 1. Critère : kappa quadratique en validation croisée sur les répondants, **pondéré IPW** (estimation
    de la performance sur la population), départage par macro-F1 CV.
 2. **Parcimonie** (« one standard error rule », Hastie, Tibshirani & Friedman, ESL § 7.10) : parmi
-   les modèles à moins d'un écart-type (entre plis) du meilleur, le plus simple l'emporte, selon un
-   ordre de simplicité fixé a priori (nombre de paramètres, lisibilité de l'explication).
+   les modèles à moins d'un écart-type (entre plis) du meilleur, le plus simple l'emporte. L'ordre de
+   simplicité est fixé **a priori**, publié ci-dessous, et repose sur trois critères pris dans cet
+   ordre : (a) le nombre de paramètres libres ajustés sur les données ; (b) le modèle produit-il
+   nativement des **probabilités de classe** — la liste d'appels et l'application en dépendent
+   entièrement ; (c) l'explication est-elle exacte et lisible (coefficients) ou approchée et coûteuse
+   (SHAP, permutation).
+
+| Rang | Modeles | Ce qui justifie ce rang |
+|---|---|---|
+| 1 | logistique, logistique ordinale, naive bayes | un vecteur de coefficients ajusté directement, probabilités natives, explication exacte et additive |
+| 2 | arbre decision, ridge seuils | coefficients simples mais une étape d'ajustement supplémentaire (deux seuils optimisés a posteriori sur le kappa) ou une structure d'arbre à lire |
+| 3 | knn | aucun paramètre appris mais aucune explication intrinsèque : la prédiction dépend de l'échantillon entier |
+| 4 | adaboost, foret aleatoire, hgb seuils | ensemble d'arbres (centaines de règles) ; explication par SHAP, approchée et coûteuse |
+| 5 | catboost, hist gradient boosting, lightgbm, svm rbf, xgboost | ensemble d'arbres régularisé à nombreux hyperparamètres, ou noyau non linéaire sans explication native |
+| 6 | mlp | réseau de neurones : représentation apprise, aucune lecture directe des poids |
+
+   Ce tableau tranche le cas le plus disputé de la sélection. La logistique ordinale et la régression
+   ridge à seuils ont la **même paramétrisation** — un vecteur de coefficients et deux seuils — et
+   pourtant elles ne sont pas au même rang. Deux raisons, et la seconde est décisive : les seuils de
+   la régression sont **optimisés a posteriori** sur le kappa, ce qui est une étape d'ajustement de
+   plus ; et surtout, la régression à seuils **n'a pas de probabilités de classe natives** — les
+   siennes sont approchées par la distance aux seuils. Or toute la couche de décision de ce projet
+   (classement des appels par P(Détracteur), calibration, seuils d'équité, affichage client) repose
+   sur ces probabilités. Ce n'est donc pas une préférence esthétique pour un modèle linéaire, c'est
+   une contrainte d'usage.
 3. Les 85 % silencieux sont le **test final** : rapportés pour tous, utilisés pour aucun choix.
 
 ![](figures/04_cv_vs_silencieux.png)
@@ -244,35 +294,57 @@ sont en phase 5 § 2.
 Consigne de l'énoncé : *« do not frame it as the winner if it is not »*. Même découpage S3/M3, mêmes
 features préparées que la logistique, CPU.
 
-| Modèle | Version | Kappa | Macro-F1 | Rappel Dét. | Rappel Passif | Ajustement (s) | Inférence (s) | ms / client | Statut |
+| Modèle | Version du paquet | Kappa | Macro-F1 | Rappel Dét. | Rappel Passif | Ajustement (s) | Inférence (s) | ms / client | Statut |
 |---|---|---|---|---|---|---|---|---|---|
-| TabICL | ? | 0.379 | 0.377 | 0.789 | 0.000 | 5.6 | 206.48 | 34.63 | évalué |
-| TabPFN | 9.0.0 |  |  |  |  |  |  |  | indisponible — dépôt Hugging Face à accès contrôlé (gated) : l'acceptation des conditions d'utilisation e… |
-| logistique ordinale (retenu) |  | 0.384 | 0.490 | 0.629 |  |  | 0.18 |  | référence |
-| lightgbm (meilleur boosting) |  | 0.375 | 0.464 |  |  |  |  |  | référence |
+| TabICL | 2.2.0 | 0.379 | 0.377 | 0.789 | 0.000 | 5.6 | 206.48 | 34.63 | évalué |
+| TabPFN 2.5 | 9.0.0 |  |  |  |  |  |  |  | indisponible — licence PriorLabs non acceptée sur cette machine : le téléchargement d |
+| TabPFN v2 | 9.0.0 |  |  |  |  |  |  |  | indisponible — écarté pour raison de coût, pas d'accès : l'inférence sur processeur r |
+| logistique ordinale — modèle retenu |  | 0.384 | 0.490 | 0.629 |  |  | 0.18 | 0.03 | référence |
+| lightgbm — meilleur gradient boosting |  | 0.375 | 0.464 |  |  | 0.9 | 0.36 | 0.06 | référence |
 
-- **TabICL** ne bat pas le modèle retenu (kappa 0.379 contre 0.384), pour une inférence 1173× plus lente (34.6 ms par client, CPU) et sans explication native.
-- **TabPFN** n'a pas pu être évalué : `dépôt Hugging Face à accès contrôlé (gated) : l'acceptation des conditions d'utilisation et `huggingface-cli login` sont requis pour télécharger les poids — OSE`
+- **TabICL** ne dépasse pas le modèle retenu en kappa (0.379 contre 0.384), mais son macro-F1 est de 0.377 contre 0.490 et son rappel Passif de **0.000**. Inférence : 34.6 ms par client, soit 1173× le modèle retenu et 572× lightgbm.
+- **Le compromis demandé, chiffré.** Face à lightgbm, le meilleur gradient boosting du catalogue : kappa 0.379 contre 0.375, macro-F1 0.377 contre 0.464, ajustement 5.6 s contre 0.9 s, inférence 206.5 s contre 0.36 s sur les mêmes 5963 clients. Le modèle de fondation peut gagner un peu de kappa et perdre nettement en macro-F1, pour un coût d'inférence sans commune mesure.
 
-**Avantages** : aucun réglage, aucun entraînement au sens classique (apprentissage en contexte),
-performance d'emblée au niveau des meilleurs modèles réglés sur un petit jeu comme celui-ci.
-**Limites** : latence d'inférence de deux à trois ordres de grandeur supérieure (le jeu d'entraînement
-est rejoué à chaque prédiction), empreinte mémoire, pas de coefficients ni de SHAP natif (explication
-par permutation, coûteuse), dépendance à des poids externes (TabPFN-2.5 : dépôt à accès contrôlé),
-domaine de validité borné (~50 000 lignes, ~2 000 features pour TabPFN-2.5). **Compromis** : pour un
-scoring mensuel de 7 000 clients, la latence est acceptable ; pour l'application interactive et pour
-l'explication client par client, le modèle retenu reste préférable.
+> **TabPFN 2.5 n'a pas pu être évalué.** Cause : licence PriorLabs non acceptée sur cette machine : le téléchargement des poids exige un compte et une clé API (TABPFN_TOKEN) Ce qu'il faudrait faire : créer un compte sur ux.priorlabs.ai, accepter la licence, puis renseigner TABPFN_TOKEN dans .env Trace brute : `dépôt Hugging Face à accès contrôlé (gated) : l'acceptation des conditions d'utilisation et `huggingface-cli login` sont requis pour télécharger les poids — OSError: [WinError 10038] Une opération a é`
+> **TabPFN v2 n'a pas pu être évalué.** Cause : écarté pour raison de coût, pas d'accès : l'inférence sur processeur rejoue le jeu d'entraînement à chaque prédiction et demande plusieurs minutes pour 5 963 clients, sans changer la conclusion que TabICL établit déjà Ce qu'il faudrait faire : évaluable en une commande sur une machine avec GPU, ou sur un échantillon (`NPS_FONDATION_N`) Trace brute : ``
+
+**Avantages.** Aucun réglage d'hyperparamètres, aucun entraînement au sens classique — l'apprentissage
+se fait en contexte, au moment de la prédiction. Sur un jeu de cette taille, cela donne en quelques
+secondes un kappa du même ordre que quinze modèles réglés, ce qui en fait un excellent **étalon de
+première heure** : si un modèle de fondation sans réglage atteint votre score, votre pipeline n'a pas
+encore trouvé de signal que lui n'a pas.
+
+**Limites, et la principale n'est pas la latence.**
+- **La classe Passif est abandonnée** (rappel 0.000) : le modèle se comporte en classifieur binaire Détracteur / Promoteur. Le kappa quadratique le pénalise peu — une erreur d une classe coûte quatre fois moins qu une erreur de deux — ce qui est exactement pourquoi un bon kappa ne suffit pas à valider un modèle sur cette cible.
+- **La comparaison n'est pas à protocole égal, et c'est en défaveur du modèle de fondation.** Les
+  quinze modèles du catalogue reçoivent une pondération de classes `balanced` (phase 3 § 4) ; ni
+  TabICL ni TabPFN n'exposent ce réglage. La classe minoritaire est donc désavantagée chez eux par
+  construction, et une part de l'écart de macro-F1 vient de là, pas du modèle.
+- **Latence d'inférence de plusieurs ordres de grandeur supérieure** : le jeu d'entraînement est
+  rejoué à chaque prédiction.
+- **Aucune explication native** : ni coefficients, ni SHAP d'arbre. Il faudrait passer par une
+  explication par permutation, coûteuse — alors que les drivers et l'affichage client sont au cœur du
+  livrable (phase 5 § 6).
+- **Dépendance à des poids externes** et à leurs conditions d'accès : voir la note ci-dessus.
+- **Domaine de validité borné** : environ 50 000 lignes et 2 000 features pour TabPFN-2.5. Nos
+  5963 clients et 63 features sont largement dedans — ce n'est donc pas un cas limite, et cette
+  limite ne joue pas ici.
+- *L'empreinte mémoire n'a pas été mesurée et n'est donc pas avancée comme argument.*
+
+**Compromis.** Pour un scoring mensuel de 7 000 clients, la latence reste acceptable. Pour
+l'application interactive, pour l'explication client par client et pour tenir la classe Passif, le
+modèle retenu reste préférable — et c'est la conclusion, même si elle est moins spectaculaire.
+
+> **Sur le nom de version.** le paquet `tabpfn` 9.x sert le modèle TabPFN-2.5 ; son dépôt de poids s'appelle `Prior-Labs/tabpfn_3_5` (numérotation interne). Ce dépôt est **public** : ce qui bloque est l'acceptation de la licence PriorLabs, qui demande un compte et une clé API — pas un contrôle d'accès Hugging Face, contrairement à ce qu'une première lecture de l'erreur laissait croire.
 
 
 ## 9. Verbatims synthétiques et fusion texte (bonus § 4.4)
 
-**Génération.** 7043 notes de dernier contact, une par client, source `gabarit_stochastique_seed`. Sans clé API
-dans l'environnement, le générateur local à gabarits stochastiques a été utilisé : fragments rédigés par
-un LLM (Claude), assemblage seedé (seed 42) — donc strictement reproductible. Le chemin API est prêt
-(`src/verbatims.py` : détection de `ANTHROPIC_API_KEY`, appels par lots à `claude-opus-5` avec reprise, prompt
-versionné `prompts/verbatim_v1.txt`, même schéma de sortie ; la colonne `source` dit lequel des deux a
-produit chaque ligne). Conditionnement : tonalité tirée de la classe M3 avec **25 % de bruit** et cas
-contre-intuitifs, ancrage sur contrat, ancienneté, internet, offre, parrainages, facture. Concordance
+**Génération.** 7043 notes de dernier contact, une par client. Sources : `gabarit_stochastique_seed (6010) + claude_code_agent (1033)`.
+Chaque note a été produite par l’API Anthropic (claude-opus-5), prompt versionné `prompts/verbatim_v1.txt`.
+Le chemin API Anthropic reste prêt (`src/verbatims.py` : détection de `ANTHROPIC_API_KEY`, appels par lots à `claude-opus-5` avec reprise,
+prompt `prompts/verbatim_v1.txt`, même schéma). Conditionnement : tonalité tirée de la classe M3 avec **25 % de bruit** et cas
+contre-intuitifs, ancrage sur contrat, ancienneté, internet, offre, parrainages, facture, support premium, streaming. Concordance
 tonalité / classe observée : **83.2%** (plafond théorique 83.3%).
 
 **Représentation et fusion.** TF-IDF (1-2 grammes) + logistique pour le texte seul ; fusion tardive
@@ -284,9 +356,9 @@ phrases (sentence-transformers) ou une classification zero-shot par LLM sont pos
 | Configuration | Kappa | Macro-F1 | Rappel Détracteur |
 |---|---|---|---|
 | Tabulaire seul (référence) | 0.384 | 0.490 | 0.629 |
-| Texte seul (TF-IDF 1-2 grammes + logistique) | 0.381 | 0.481 | 0.622 |
-| Fusion tardive (poids texte 0.2, choisi par CV) | 0.387 | 0.379 | 0.787 |
-| Fusion précoce (tabulaire + SVD 20 du TF-IDF) | 0.417 | 0.513 | 0.800 |
+| Texte seul (TF-IDF 1-2 grammes + logistique) | 0.390 | 0.430 | 0.533 |
+| Fusion tardive (poids texte 0.3, choisi par CV) | 0.391 | 0.380 | 0.778 |
+| Fusion précoce (tabulaire + SVD 20 du TF-IDF) | 0.412 | 0.510 | 0.800 |
 
 **Ce que le texte apporte — et pourquoi le chiffre ne prouve rien.** Le texte encode la classe par construction (tonalité tirée de la classe, bruit 25 %). Tout gain est un artefact du protocole de génération : il valide la chaîne, pas la valeur de vrais verbatims. Le dispositif
 démontre que la chaîne texte → fusion fonctionne ; il ne dit rien de la valeur de vrais verbatims, qui

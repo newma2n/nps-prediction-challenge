@@ -5,6 +5,17 @@ Trois mappings :
   M2  recentré                      (<=2 Détracteur, 3-4 Passif, 5 Promoteur)
   M3  arbitré par les données       (les « 3 » sont tranchés par la mesure, pas par décret)
 
+RÈGLE DE DESTINATION DU BLOC DES « 3 » (asymétrique, et c'est voulu)
+--------------------------------------------------------------------
+La seule question posée au modèle d'arbitrage est : « les clients à 3 sont-ils majoritairement des
+détracteurs ? ». Si oui (part > 1/2), le bloc rejoint les Détracteurs ; sinon il reste **Passif**.
+Promoteur n'est volontairement pas une issue : une note de 3 sur 5 est le milieu exact de
+l'échelle, et rien dans le NPS ne permet de promouvoir un milieu d'échelle au rang de promoteur —
+la lecture prudente est la seule défendable. L'asymétrie est donc assumée : la mesure sert à
+écarter l'hypothèse « ces clients sont des détracteurs » (celle de l'énoncé), pas à choisir
+librement parmi les trois classes. `part_3_vers_promoteur` est rapporté pour ce qu'il est : le
+complément, c'est-à-dire la part des « 3 » qui ressemblent aux 4–5, pas une preuve qu'ils le sont.
+
 MÉTHODE D'ARBITRAGE (d'après Elero et al., 2026)
 -------------------------------------------------
 On entraîne un modèle UNIQUEMENT sur les extrêmes non ambigus — satisfaction 1-2
@@ -80,6 +91,13 @@ def arbitrer_les_trois(df: pd.DataFrame, cfg: dict, seed: int = 42) -> dict:
         "n_extremes": int(extremes.sum()),
         "n_ambigus": int(ambigus.sum()),
         "exactitude_sur_extremes": round(exactitude_extremes, 4),
+        # Point de comparaison honnete de cette exactitude : la classe majoritaire de ce probleme
+        # BINAIRE (1-2 contre 4-5). Les 0,77-0,80 de la litterature portent sur des problemes a
+        # trois classes et ne s'y comparent pas.
+        "taux_de_base_extremes": round(float(y_ext.value_counts(normalize=True).max()), 4),
+        # Part des clients a satisfaction 3 encore presents : le chiffre qui justifie de ne pas
+        # les traiter en detracteurs. Publie ici pour qu'aucun document ne l'ecrive en dur.
+        "part_3_restes": round(float((df.loc[ambigus, "Churn Value"] == 0).mean()), 4),
         "part_3_vers_detracteur": round(part_detracteur, 4),
         "part_3_vers_promoteur": round(1 - part_detracteur, 4),
         # Indicateur métier individuel — jamais utilisé comme étiquette.
@@ -98,9 +116,14 @@ def construire_cibles(df: pd.DataFrame, cfg: dict, seed: int = 42) -> tuple[pd.D
 
     arb = arbitrer_les_trois(df, cfg, seed)
 
-    # Décision de bloc, prise par la mesure : si la majorité des « 3 » ressemble à des
-    # détracteurs, le bloc rejoint les détracteurs ; sinon il reste passif.
-    destination_des_3 = "Detracteur" if arb["part_3_vers_detracteur"] > 0.5 else "Passif"
+    # Décision de bloc, prise par la mesure (règle documentée en tête de module) : si la majorité
+    # des « 3 » ressemble à des détracteurs, le bloc rejoint les détracteurs ; sinon il reste
+    # Passif. Promoteur n'est pas une issue : un milieu d'échelle ne se promeut pas.
+    SEUIL_BASCULE = 0.5
+    destination_des_3 = "Detracteur" if arb["part_3_vers_detracteur"] > SEUIL_BASCULE else "Passif"
+    arb["seuil_bascule"] = SEUIL_BASCULE
+    arb["issues_possibles"] = ["Detracteur", "Passif"]
+    arb["marge_a_la_bascule"] = round(SEUIL_BASCULE - arb["part_3_vers_detracteur"], 4)
     mapping_m3 = dict(cfg["cible"]["m3_extremes"])
     mapping_m3[3] = destination_des_3
     cibles["M3"] = appliquer_mapping(satisfaction, mapping_m3)

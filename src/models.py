@@ -320,10 +320,22 @@ CATALOGUE: list[dict] = [
 NOMS = [m["nom"] for m in CATALOGUE]
 
 # Ordre de simplicité (1 = le plus simple), fixé A PRIORI pour la règle de parcimonie de la
-# sélection : nombre de paramètres libres et lisibilité de l'explication.
+# sélection. Trois critères, dans cet ordre : (a) nombre de paramètres libres ajustés sur les
+# données ; (b) le modèle produit-il nativement des probabilités de classe — la liste d'appels et
+# l'application en dépendent ; (c) l'explication est-elle exacte et lisible (coefficients) ou
+# approchée et coûteuse (SHAP, permutation).
 SIMPLICITE = {"logistique": 1, "logistique_ordinale": 1, "naive_bayes": 1, "ridge_seuils": 2, "arbre_decision": 2,
               "knn": 3, "hgb_seuils": 4, "foret_aleatoire": 4, "adaboost": 4, "hist_gradient_boosting": 5,
               "lightgbm": 5, "xgboost": 5, "catboost": 5, "svm_rbf": 5, "mlp": 6}
+
+JUSTIFICATION_SIMPLICITE = {
+    1: "un vecteur de coefficients ajusté directement, probabilités natives, explication exacte et additive",
+    2: "coefficients simples mais une étape d'ajustement supplémentaire (deux seuils optimisés a posteriori sur le kappa) ou une structure d'arbre à lire",
+    3: "aucun paramètre appris mais aucune explication intrinsèque : la prédiction dépend de l'échantillon entier",
+    4: "ensemble d'arbres (centaines de règles) ; explication par SHAP, approchée et coûteuse",
+    5: "ensemble d'arbres régularisé à nombreux hyperparamètres, ou noyau non linéaire sans explication native",
+    6: "réseau de neurones : représentation apprise, aucune lecture directe des poids",
+}
 FAMILLE = {m["nom"]: m["famille"] for m in CATALOGUE}
 FORMULATION = {m["nom"]: m["formulation"] for m in CATALOGUE}
 

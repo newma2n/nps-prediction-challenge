@@ -2,17 +2,28 @@
 
     python -m src.verbatims            # génère data/processed/verbatims.parquet
 
-Deux chemins, même schéma de sortie :
+Quatre chemins, même schéma de sortie, par ordre de priorité :
+
+  0. Lots produits par des agents Claude (Claude Code, modèle claude-opus-5) — si le dossier
+     data/interim/verbatims_lots/ contient des fichiers lot_NNN_sortie.json, ils sont assemblés,
+     contrôlés ligne à ligne, et les rejets basculent sur le gabarit (tracé dans `source`). Le
+     prompt est prompts/verbatim_v1.txt ; la reproductibilité vient du COMMIT des textes (aucune
+     API de LLM actuelle n'expose de graine), exactement comme le demande l'énoncé.
+
 
   1. API Anthropic (Claude) — activé si ANTHROPIC_API_KEY est présent dans l'environnement ou
      dans un fichier .env à la racine. Prompt versionné dans prompts/verbatim_v1.txt, appels par
      lots, reprise sur incident, identifiant de modèle épinglé. La Messages API n'expose ni seed
      ni (sur les modèles actuels) temperature : la reproductibilité vient du COMMIT des textes.
 
-  2. Générateur local à gabarits stochastiques — utilisé sinon. Les fragments ont été rédigés par
-     un LLM (Claude) ; l'assemblage est local, seedé, donc strictement reproductible. La colonne
-     `source` dit lequel des deux a produit chaque ligne. Ne pas présenter ce chemin comme un
-     appel API : il ne l'est pas.
+  2. LLM local (transformers, Qwen2.5-1.5B-Instruct, CPU) — utilisé sinon, si transformers et torch
+     sont disponibles. C'est un vrai LLM qui produit chaque note (l'énoncé autorise explicitement
+     « local LLMs ») ; graine torch fixée, prompt versionné dans prompts/verbatim_local_v1.txt,
+     génération par lots avec reprise, contrôle de chaque sortie (langue, longueur, mots interdits).
+
+  3. Générateur à gabarits stochastiques — repli ultime, et repli ligne à ligne quand une sortie du
+     LLM local échoue au contrôle. Les fragments ont été rédigés par un LLM (Claude) ; l'assemblage
+     est local et seedé. La colonne `source` dit lequel des trois a produit chaque ligne.
 
 Conditionnement (commun aux deux chemins) : tonalité tirée de la classe M3, avec un BRUIT de 25 %
 (tonalité redistribuée au hasard) et des cas contre-intuitifs, comme l'énoncé le demande.
@@ -31,6 +42,8 @@ import pandas as pd
 from .data import RACINE, charger_config
 
 MODELE_LLM = "claude-opus-5"
+MODELE_LOCAL = "Qwen/Qwen2.5-1.5B-Instruct"
+MOTS_INTERDITS = ("tonalit", "frustr", "neutre", "enthousias", "satisfaction", "note de", "détracteur", "promoteur", "passif")
 TAUX_BRUIT = 0.25
 TON = {"Detracteur": "frustré", "Passif": "neutre", "Promoteur": "enthousiaste"}
 
@@ -181,6 +194,111 @@ def generer_api(df: pd.DataFrame, tons: pd.Series, chemin_sortie: Path, taille_l
     return pd.DataFrame(lignes)
 
 
+# ----------------------------------------------------------------------------------
+# Chemin 2 — LLM local (transformers, CPU)
+# ----------------------------------------------------------------------------------
+def _controle(texte: str) -> bool:
+    """Une note est acceptée si elle est en français, de 1 à 3 phrases, sans mot interdit."""
+    t = texte.strip().strip('"«»').strip()
+    if len(t) < 25 or len(t) > 420:
+        return False
+    bas = t.lower()
+    if any(m in bas for m in MOTS_INTERDITS):
+        return False
+    if sum(bas.count(w) for w in (" the ", " and ", " with ", " my ")) > 1:   # dérive vers l'anglais
+        return False
+    return True
+
+
+def generer_llm_local(df: pd.DataFrame, tons: pd.Series, chemin_sortie: Path, seed: int,
+                      taille_lot: int = 24, max_new_tokens: int = 72) -> pd.DataFrame:
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+    torch.manual_seed(seed); torch.set_num_threads(max(1, (os.cpu_count() or 4) - 1))
+    tok = AutoTokenizer.from_pretrained(MODELE_LOCAL); tok.padding_side = "left"
+    mdl = AutoModelForCausalLM.from_pretrained(MODELE_LOCAL, dtype=torch.bfloat16); mdl.eval()
+    systeme = (RACINE / "prompts" / "verbatim_local_v1.txt").read_text(encoding="utf-8")
+
+    deja = pd.read_parquet(chemin_sortie) if chemin_sortie.exists() else pd.DataFrame(columns=["Customer ID"])
+    if len(deja) and "source" in deja and not deja["source"].isin(["llm_local_transformers", "gabarit_stochastique_seed"]).all():
+        deja = pd.DataFrame(columns=["Customer ID"])   # fichier d'une autre source : on repart
+    faits = set(deja["Customer ID"]) if len(deja) else set()
+    lignes = deja.to_dict(orient="records") if len(deja) else []
+    a_faire = [i for i in df.index if df.loc[i, "Customer ID"] not in faits]
+    rng = np.random.default_rng(seed + 7)
+    t0 = time.time(); n_repli = 0
+
+    def _message(i):
+        p = _profil(df.loc[i])
+        return [{"role": "system", "content": systeme},
+                {"role": "user", "content": (f"Client : contrat {p['contrat']}, ancienneté {p['anciennete_mois']} mois, internet {p['internet']}, "
+                                             f"offre reçue {p['offre']}, {p['parrainages']} parrainage(s), facture {p['facture_mensuelle']} $/mois, "
+                                             f"support premium {p['support_premium']}, streaming TV {p['streaming']}. Tonalité : {tons.loc[i]}.")}]
+
+    for debut in range(0, len(a_faire), taille_lot):
+        lot = a_faire[debut:debut + taille_lot]
+        textes = [tok.apply_chat_template(_message(i), tokenize=False, add_generation_prompt=True) for i in lot]
+        enc = tok(textes, return_tensors="pt", padding=True)
+        with torch.no_grad():
+            out = mdl.generate(**enc, max_new_tokens=max_new_tokens, do_sample=True, temperature=0.8, top_p=0.9,
+                               pad_token_id=tok.eos_token_id)
+        for i, o in zip(lot, out):
+            texte = tok.decode(o[enc["input_ids"].shape[1]:], skip_special_tokens=True).strip().strip('"«»').strip()
+            if _controle(texte):
+                lignes.append({"Customer ID": df.loc[i, "Customer ID"], "verbatim": texte, "tonalite_visee": tons.loc[i],
+                               "source": "llm_local_transformers", "modele": MODELE_LOCAL})
+            else:  # repli ligne à ligne, tracé dans la colonne source
+                n_repli += 1
+                lignes.append({"Customer ID": df.loc[i, "Customer ID"], "verbatim": _gabarit(rng, tons.loc[i], _profil(df.loc[i])),
+                               "tonalite_visee": tons.loc[i], "source": "gabarit_stochastique_seed", "modele": None})
+        pd.DataFrame(lignes).to_parquet(chemin_sortie, index=False)  # reprise possible à tout moment
+        fait = min(debut + taille_lot, len(a_faire)); ecoule = time.time() - t0
+        print(f"  {fait}/{len(a_faire)} générés · {ecoule/60:.1f} min · reste ≈ {ecoule/fait*(len(a_faire)-fait)/60:.0f} min · replis {n_repli}", flush=True)
+    return pd.DataFrame(lignes)
+
+
+# ----------------------------------------------------------------------------------
+# Chemin 0 — assemblage des lots rédigés par des agents Claude
+# ----------------------------------------------------------------------------------
+def assembler_lots(df: pd.DataFrame, tons: pd.Series, dossier: Path, seed: int) -> pd.DataFrame | None:
+    sorties = sorted(dossier.glob("lot_*_sortie.json"))
+    if not sorties:
+        return None
+    textes: dict[str, str] = {}
+    for f in sorties:
+        brut = f.read_text(encoding="utf-8")
+        try:
+            objets = json.loads(brut)
+        except Exception as e:
+            # Un lot peut avoir été tronqué en pleine écriture. Plutôt que de le perdre en entier,
+            # on récupère ligne à ligne les entrées complètes : jeter 50 textes parce que le
+            # dernier est coupé serait une perte gratuite. Ce qui est récupéré est tracé.
+            objets = []
+            for ligne in brut.split("\n"):
+                s_ = ligne.strip().rstrip(",")
+                if s_.startswith("{"):
+                    try:
+                        objets.append(json.loads(s_))
+                    except Exception:
+                        break
+            print(f"  lot partiellement lisible {f.name} ({type(e).__name__}) : {len(objets)} entrées récupérées")
+        for obj in objets:
+            if isinstance(obj, dict) and obj.get("id") and obj.get("verbatim"):
+                textes[str(obj["id"])] = str(obj["verbatim"]).strip().strip('"«»').strip()
+    rng = np.random.default_rng(seed + 11)
+    lignes, n_repli, n_absent = [], 0, 0
+    for i in df.index:
+        cid = df.loc[i, "Customer ID"]; t = textes.get(cid)
+        if t is not None and _controle(t):
+            lignes.append({"Customer ID": cid, "verbatim": t, "tonalite_visee": tons.loc[i], "source": "claude_code_agent", "modele": "claude-opus-5"})
+        else:
+            n_repli += (t is not None); n_absent += (t is None)
+            lignes.append({"Customer ID": cid, "verbatim": _gabarit(rng, tons.loc[i], _profil(df.loc[i])), "tonalite_visee": tons.loc[i],
+                           "source": "gabarit_stochastique_seed", "modele": None})
+    print(f"  lots assemblés : {len(sorties)} fichiers, {len(textes)} textes · rejetés au contrôle {n_repli} · absents {n_absent}")
+    return pd.DataFrame(lignes)
+
+
 def main():
     cfg = charger_config()
     _charger_env()
@@ -188,17 +306,31 @@ def main():
     tons = tonalites(df, df["cible_M3"], cfg["seed"])
     sortie = RACINE / "data" / "processed" / "verbatims.parquet"
 
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    llm_local_dispo = False
+    try:
+        import torch, transformers  # noqa: F401
+        llm_local_dispo = os.environ.get("NPS_SANS_LLM_LOCAL") != "1"
+    except ImportError:
+        pass
+
+    lots = assembler_lots(df, tons, RACINE / "data" / "interim" / "verbatims_lots", cfg["seed"]) if os.environ.get("NPS_IGNORER_LOTS") != "1" else None
+    if lots is not None:
+        print("Lots d'agents Claude détectés — assemblage (prompt prompts/verbatim_v1.txt).")
+        v = lots; v.to_parquet(sortie, index=False)
+    elif os.environ.get("ANTHROPIC_API_KEY"):
         print(f"Clé API détectée — génération via {MODELE_LLM}, prompt prompts/verbatim_v1.txt")
         v = generer_api(df, tons, sortie)
+    elif llm_local_dispo:
+        print(f"Aucune clé API — LLM local {MODELE_LOCAL} (transformers, CPU), prompt prompts/verbatim_local_v1.txt")
+        v = generer_llm_local(df, tons, sortie, cfg["seed"])
     else:
-        print("Aucune clé API — générateur local à gabarits stochastiques (seedé).")
+        print("Ni clé API ni transformers — générateur à gabarits stochastiques (seedé).")
         v = generer_local(df, tons, cfg["seed"])
         v.to_parquet(sortie, index=False)
 
     concordance = float((v.set_index("Customer ID").loc[df["Customer ID"], "tonalite_visee"].values
                          == df["cible_M3"].map(TON).values).mean())
-    print(f"{len(v)} verbatims · source={v['source'].iloc[0]} · concordance tonalité/classe={concordance:.1%} "
+    print(f"{len(v)} verbatims · sources={v['source'].value_counts().to_dict()} · concordance tonalité/classe={concordance:.1%} "
           f"(bruit visé {TAUX_BRUIT:.0%}) -> {sortie.relative_to(RACINE)}")
 
 

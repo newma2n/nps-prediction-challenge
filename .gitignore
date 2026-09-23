@@ -3,7 +3,13 @@
 
 # Données et artefacts régénérables (python -m src.run)
 data/raw/*.xlsx
-data/interim/
+data/interim/*
+# Exception : les textes RÉDIGÉS par des agents Claude sont versionnés. L'énoncé (§ 6) demande les
+# verbatims et le script qui les produit ; or aucune API de LLM n'expose de graine, donc la seule
+# reproductibilité possible est le commit des textes eux-mêmes. Les fichiers d'entrée, eux, se
+# régénèrent à partir du jeu de données et n'ont pas à peser dans le dépôt.
+!data/interim/verbatims_lots/
+data/interim/verbatims_lots/*_entree.json
 # Livrables exigés par l'énoncé (§ 6) : dataset dérivé, verbatims, artefact de modèle — versionnés (< 1 Mo)
 
 # Python

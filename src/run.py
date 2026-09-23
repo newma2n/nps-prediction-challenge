@@ -31,14 +31,14 @@ from sklearn.metrics import cohen_kappa_score, f1_score, make_scorer
 from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold, cross_val_predict
 
 from .data import RACINE, charger_config, preparer, registre_fuites
-from .evaluate import (audit_equite, audit_proxies, metriques, nps_simule, precision_at_k, resume,
-                       seuils_par_groupe, valeur_economique)
+from .evaluate import (appliquer_seuils, audit_equite, audit_proxies, bruiter_ordinal, metriques, mitigation_seuils,
+                       nps_de, nps_simule, precision_at_k, quantification, resume, seuils_par_groupe, valeur_economique)
 from .features import (GROUPES_OPTIONNELS, HYPOTHESES_DERIVEES, colonnes_avec_groupes, colonnes_modele,
                        construire, noms_apres_encodage)
 from .models import (CATALOGUE, FAMILLE, FORMULATION, NOMS, SIMPLICITE, OrdinalParSeuils, budget_recherche, calibrer,
                      construire_modeles, entrainer, espace_recherche, modele_pour_shap)
 from .protocol import decouper, diagnostic, estimer_propension
-from .explication import contributions_detracteur, genre_explication
+from .explication import BLOCS_DRIVERS, agreger_par_variable, contributions_detracteur, genre_explication
 from .target import ORDRE, construire_cibles
 
 warnings.filterwarnings("ignore")
@@ -112,18 +112,72 @@ def _reconstruire(nom, n_, c_, seed, ref_pipe, regle: bool):
     return ma
 
 
-def levier(row: pd.Series, mediane_charge: float) -> str:
-    """Règle de recommandation dérivée des drivers (phase 5) — heuristique, pas causale.
-    Ordre : l'engagement d'abord (driver n°1 actionnable), puis le prix, puis l'accueil, puis le support."""
-    if str(row["Contract"]) == "Month-to-Month":
-        return "Proposer un engagement 12 mois avec avantage"
-    if pd.notna(row.get("charge_par_service")) and row["charge_par_service"] > mediane_charge:
-        return "Revue tarifaire / bundle (charge par service élevée)"
-    if row["Tenure in Months"] < 12:
-        return "Parcours d'accueil renforcé (client récent)"
-    if str(row.get("Internet Service")) == "Yes" and str(row.get("Premium Tech Support")) == "No":
-        return "Proposer le support technique premium"
-    return "Appel de courtoisie et diagnostic"
+# Ce que le métier peut changer, et les variables du modèle qui le portent. L'ordre de la liste ne
+# décide de rien : c'est la contribution individuelle du client qui choisit (voir `levier`).
+LEVIERS_ACTIONNABLES = {
+    "Engagement": {"libelle": "Proposer un engagement 12 mois avec avantage",
+                   "variables": ["Contract"],
+                   "condition": lambda r, med: str(r.get("Contract")) == "Month-to-Month"},
+    "Prix": {"libelle": "Revue tarifaire / bundle (charge par service élevée)",
+             "variables": ["Facture mensuelle", "Monthly Charge", "charge_par_service", "revenu_par_mois",
+                           "Total Charges", "Total Revenue", "Total Long Distance Charges"],
+             "condition": lambda r, med: pd.notna(r.get("charge_par_service")) and float(r["charge_par_service"]) > med},
+    "Accueil": {"libelle": "Parcours d'accueil renforcé (client récent)",
+                "variables": ["Ancienneté", "Tenure in Months", "tranche_anciennete"],
+                "condition": lambda r, med: float(r.get("Tenure in Months", 99)) < 24},
+    "Support": {"libelle": "Proposer le support technique premium ou la sécurité en ligne",
+                "variables": ["Premium Tech Support", "Online Security", "Online Backup", "Device Protection Plan",
+                              "n_services", "Internet Type"],
+                "condition": lambda r, med: str(r.get("Premium Tech Support")) == "No" or str(r.get("Online Security")) == "No"},
+    "Parrainage": {"libelle": "Inviter au programme de parrainage",
+                   "variables": ["Parrainage", "Number of Referrals", "a_parraine"],
+                   "condition": lambda r, med: float(r.get("Number of Referrals", 0)) == 0},
+}
+LEVIER_DEFAUT = "Appel de courtoisie et diagnostic"
+
+
+def leviers_ordonnes(row: pd.Series, mediane_charge: float, contributions: pd.Series | None = None) -> list[str]:
+    """Tous les leviers actionnables chez ce client, classés par contribution décroissante au risque.
+
+    On rend la liste et pas seulement le premier, parce que le premier ne différencie presque rien
+    dans cette base : le contrat mensuel est le premier facteur de risque ET la situation de la
+    quasi-totalité des détracteurs prédits. Le second levier est celui qui sépare deux clients
+    également mensuels, et c'est lui qui rend la recommandation exploitable.
+    """
+    ordre, vus = [], set()
+    if contributions is not None and len(contributions):
+        for var in contributions[contributions > 0].sort_values(ascending=False).index:
+            for nom, lev in LEVIERS_ACTIONNABLES.items():
+                if nom not in vus and var in lev["variables"] and lev["condition"](row, mediane_charge):
+                    vus.add(nom); ordre.append(lev["libelle"])
+    for nom, lev in LEVIERS_ACTIONNABLES.items():   # complément : actionnabilité décroissante
+        if nom not in vus and lev["condition"](row, mediane_charge):
+            vus.add(nom); ordre.append(lev["libelle"])
+    return ordre or [LEVIER_DEFAUT]
+
+
+def levier(row: pd.Series, mediane_charge: float, contributions: pd.Series | None = None) -> str:
+    """Levier d'action d'un client = le **premier levier actionnable parmi ses propres facteurs de
+    risque**, classés par contribution décroissante à P(Détracteur) — et non une cascade fixe
+    identique pour tout le monde.
+
+    Pourquoi ce changement : une cascade qui teste le contrat en premier attribue « engagement »
+    à la quasi-totalité des détracteurs prédits, puisqu'ils sont presque tous en mensuel. La
+    recommandation devient vraie mais inutilisable — elle ne distingue plus deux clients. Ici,
+    deux clients mensuels reçoivent des leviers différents si ce qui pèse chez eux diffère.
+
+    `contributions` : contributions signées du client, agrégées par variable d'origine
+    (`explication.agreger_par_variable`). Repli sur la cascade d'actionnabilité si absentes.
+    """
+    return leviers_ordonnes(row, mediane_charge, contributions)[0]
+
+
+def _bruit_uniforme(y, taux: float, rng) -> np.ndarray:
+    """Borne pessimiste : une étiquette corrompue part vers n'importe quelle autre classe."""
+    y = np.asarray(y).astype(str).copy()
+    for i in np.flatnonzero(rng.random(len(y)) < taux):
+        y[i] = rng.choice([c for c in ORDRE if c != y[i]])
+    return y
 
 
 def main() -> dict:
@@ -261,12 +315,23 @@ def main() -> dict:
     classement = []
     for nom, l in comparatif.items():
         v = l["regle"] if l["version_retenue"] == "réglée" else l["defaut"]
+        # Précision@K de CHAQUE modèle, et pas seulement du retenu : c'est la métrique qui décide
+        # de l'usage réel (une capacité d'appel fixe), et sans elle on ne peut pas répondre à
+        # « la baseline capte plus de détracteurs, pourquoi ne pas la prendre ? ».
+        try:
+            mv = versions[nom]
+            prv = mv.predict_proba(X[sil])[:, list(mv.classes_).index("Detracteur")]
+            pkv = precision_at_k(y[sil], prv, cfg["metier"]["k_appels"])
+            prec_k, lift_k = pkv["precision_at_k"], pkv["lift"]
+        except Exception:
+            prec_k = lift_k = None
         classement.append({"modele": nom, "famille": l["famille"], "formulation": l["formulation"], "version": l["version_retenue"],
                            "kappa_cv_ipw": v["cv"]["kappa_cv_ipw"], "kappa_cv": v["cv"]["kappa_cv"], "kappa_cv_et": v["cv"]["kappa_cv_et"],
                            "macro_f1_cv": v["cv"]["macro_f1_cv"],
                            "kappa_silencieux": v["silencieux"]["kappa"], "macro_f1_silencieux": v["silencieux"]["macro_f1"],
                            "rappel_detracteur_silencieux": v["silencieux"]["rappel_detracteur"],
                            "rappel_passif_silencieux": v["silencieux"]["rappel_passif"],
+                           "precision_at_k_silencieux": prec_k, "lift_silencieux": lift_k,
                            "auc_detracteur_silencieux": v["silencieux"].get("auc_detracteur")})
     classement.sort(key=lambda d: (-d["kappa_cv_ipw"], -d["macro_f1_cv"]))
     for i, c in enumerate(classement, 1):
@@ -363,22 +428,30 @@ def main() -> dict:
         except Exception as e:
             R["desequilibre"]["strategies"].append({"strategie": lib, "erreur": f"{type(e).__name__}: {str(e)[:120]}"})
 
-    # Bruit d'étiquettes (§ 4.1 : « adding realistic noise ») : on corrompt une part des étiquettes
-    # d'entraînement et on mesure la dégradation sur les silencieux (dont les étiquettes restent vraies).
-    rng = np.random.default_rng(seed)
+    # Bruit d'étiquettes (§ 4.1 : « adding realistic noise »). On corrompt une part des étiquettes
+    # d'entraînement et on mesure la dégradation sur les silencieux (dont les étiquettes restent
+    # vraies). Deux bruits, et la distinction compte : le bruit ORDINAL est le seul réaliste pour
+    # une note — un promoteur mal mesuré devient passif bien plus souvent que détracteur, et les
+    # clients à satisfaction 3 sont les plus exposés ; le bruit UNIFORME est conservé comme borne
+    # pessimiste (toutes les erreurs équiprobables, y compris promoteur vers détracteur).
     R["bruit_etiquettes"] = []
+    R["bruit_etiquettes_note"] = ("bruit ordinal : 80 % des bascules vont vers une classe adjacente, 20 % vers l'opposée, et un "
+                                  "client à satisfaction 3 est trois fois plus exposé qu'un autre. Le bruit uniforme, borne "
+                                  "pessimiste, tire la classe de remplacement au hasard parmi les deux autres.")
+    poids_ambigu = 1.0 + 2.0 * (sr == 3).astype(float)
     for taux in (0.0, 0.05, 0.10, 0.20, 0.30):
-        yb = yr.copy()
-        if taux > 0:
-            flip = rng.random(len(yb)) < taux
-            autres = np.array([rng.choice([c for c in ORDRE if c != v]) for v in yb[flip]]) if flip.any() else np.array([])
-            yb[flip] = autres
-        try:
-            mb = entrainer(clone(base_final), Xr, yb, y_continu=sr)
-            r = resume(metriques(y[sil], mb.predict(X[sil]), mb.predict_proba(X[sil]), list(mb.classes_)))
-            R["bruit_etiquettes"].append({"taux_bruit": taux, **r})
-        except Exception as e:
-            R["bruit_etiquettes"].append({"taux_bruit": taux, "erreur": str(e)[:120]})
+        for genre_bruit in ("ordinal", "uniforme"):
+            if taux == 0 and genre_bruit == "uniforme":
+                continue
+            yb = (bruiter_ordinal(yr, taux, np.random.default_rng(seed + 1), poids=poids_ambigu) if genre_bruit == "ordinal"
+                  else _bruit_uniforme(yr, taux, np.random.default_rng(seed + 2)))
+            try:
+                mb = entrainer(clone(base_final), Xr, yb, y_continu=sr)
+                r = resume(metriques(y[sil], mb.predict(X[sil]), mb.predict_proba(X[sil]), list(mb.classes_)))
+                R["bruit_etiquettes"].append({"taux_bruit": taux, "genre": genre_bruit,
+                                              "etiquettes_modifiees": int((np.asarray(yb) != np.asarray(yr)).sum()), **r})
+            except Exception as e:
+                R["bruit_etiquettes"].append({"taux_bruit": taux, "genre": genre_bruit, "erreur": str(e)[:120]})
 
     # Ablation de features : ce que coûte ou rapporte chaque bloc (§ 4.3, § 4.7)
     derivees = list(HYPOTHESES_DERIVEES)
@@ -392,6 +465,26 @@ def main() -> dict:
         "− Offer et a_recu_offre": ([c for c in num if c != "a_recu_offre"], [c for c in cat if c != "Offer"]),
         "− Contract": (num, [c for c in cat if c != "Contract"]),
     }
+    # [équité] Ablation ciblée : que coûte le retrait des variables qui reconstruisent le mieux
+    # l'âge ? Sans ce chiffre, « le modèle retrouve l'âge » reste un constat sans suite ; avec lui,
+    # l'arbitrage performance / non-discrimination est posé en nombres.
+    try:
+        from sklearn.linear_model import LogisticRegression as _LR
+        _prep_p = construire_modeles(num, cat, seed, ["logistique"])["logistique"].named_steps["preparation"].fit(X[rep])
+        _Xp = np.asarray(_prep_p.transform(X[rep]), dtype=float); _noms_p = noms_apres_encodage(_prep_p)
+        _lr = _LR(max_iter=2000, class_weight="balanced", random_state=seed).fit(_Xp, (df.loc[rep, "Age"] < 30).astype(int).values)
+        proxies_age, vus = [], set()
+        for i in np.argsort(-np.abs(_lr.coef_[0])):
+            base = next((c for c in cat if _noms_p[i].startswith(c + "_")), _noms_p[i])
+            if base in (num + cat) and base not in vus:
+                vus.add(base); proxies_age.append(base)
+            if len(proxies_age) == 3:
+                break
+        R["proxies_age_retires"] = proxies_age
+        configs["− top-3 proxies d'âge (" + ", ".join(proxies_age) + ")"] = ([c for c in num if c not in proxies_age],
+                                                                             [c for c in cat if c not in proxies_age])
+    except Exception as e:
+        R["proxies_age_retires"] = {"erreur": f"{type(e).__name__}: {str(e)[:120]}"}
     R["ablation_features"] = []
     for lib, (n_, c_) in configs.items():
         try:
@@ -435,6 +528,18 @@ def main() -> dict:
                               "courbe_k": [precision_at_k(y[sil], proba_sil[:, i_det], kk) for kk in (100, 250, 500, 750, 1000, 1500, 2000)]}
     pred_tous = np.asarray(pipeline_decision.predict(X)).astype(str)
     R["nps_simule"] = nps_simule(y[sil], pred_sil, yr, pred_tous, seed)
+    # Quantification : quatre estimateurs de la composition des silencieux, comparés à la vérité.
+    # La matrice de confusion vient d'une validation croisée sur les répondants — la seule
+    # disponible en production ; ce qu'elle vaut sous MNAR est mesuré, pas supposé.
+    skf_q = StratifiedKFold(5, shuffle=True, random_state=seed)
+    pred_cv_q = np.empty(len(yr), dtype=object); proba_cv_q = np.zeros((len(yr), 3))
+    for tr, te in skf_q.split(Xr, yr):
+        mq = clone(final); entrainer(mq, Xr.iloc[tr], yr[tr], y_continu=sr[tr])
+        pred_cv_q[te] = np.asarray(mq.predict(Xr.iloc[te])).astype(str)
+        pq = mq.predict_proba(Xr.iloc[te]); cq = list(mq.classes_); proba_cv_q[te] = pq[:, [cq.index(c) for c in ORDRE]]
+    proba_sil_ordre = proba_brut_sil[:, [list(final.classes_).index(c) for c in ORDRE]]
+    R["nps_simule"]["quantification"] = quantification(yr, pred_cv_q.astype(str), proba_cv_q, pred_sil, proba_sil_ordre, seed)
+    R["nps_simule"]["quantification"]["verite"] = {"parts": {c: round(float((y[sil] == c).mean()), 4) for c in ORDRE}, "nps": nps_de(y[sil])}
     # NPS par segment : prédit vs vrai (silencieux)
     seg_nps = []
     df_sil = df[sil]
@@ -445,7 +550,6 @@ def main() -> dict:
         mk_ = masque.values
         if mk_.sum() < 50:
             continue
-        from .evaluate import nps_de
         seg_nps.append({"segment": lib, "clients": int(mk_.sum()), "nps_predit": nps_de(pred_sil[mk_]), "nps_vrai": nps_de(y[sil][mk_]),
                         "part_detracteurs_predite": round(float((pred_sil[mk_] == "Detracteur").mean()), 4),
                         "part_detracteurs_vraie": round(float((y[sil][mk_] == "Detracteur").mean()), 4)})
@@ -454,7 +558,11 @@ def main() -> dict:
     # ======================================================================== [7] équité, drivers, leviers
     print("[7/8] Équité (sous-groupes, proxies, mitigation), drivers globaux et par segment, leviers")
     df_sil = df[sil].copy()
-    df_sil["tranche_age"] = pd.cut(df_sil["Age"], [0, 30, 45, 60, 120], labels=["<30", "30-45", "45-60", "60+"]).astype(str)
+    # right=False : « <30 » = [0 ; 30[ et « 60+ » = [60 ; 120[. Avec les bornes fermées à droite,
+    # un client de 30 ans tombait dans « <30 » et un client de 60 ans dans « 45-60 » : les libellés
+    # mentaient sur leur contenu, et l'audit d'équité portait sur des groupes mal nommés.
+    df_sil["tranche_age"] = pd.cut(df_sil["Age"], [0, 30, 45, 60, 120], right=False,
+                                   labels=["<30", "30-45", "45-60", "60+"]).astype(str)
     tertiles = df["Population"].quantile([1 / 3, 2 / 3]).values
     df_sil["zone"] = pd.cut(df_sil["Population"], [-1, tertiles[0], tertiles[1], np.inf],
                             labels=["faible densité", "densité moyenne", "forte densité"]).astype(str)
@@ -473,61 +581,247 @@ def main() -> dict:
         "Moins de 30 ans": (df_sil["Age"] < 30).values, "Senior (65+)": (df_sil["Senior Citizen"].astype(str) == "Yes").values,
         "Femme": (df_sil["Gender"].astype(str) == "Female").values, "Marié(e)": (df_sil["Married"].astype(str) == "Yes").values,
         "A des dépendants": (df_sil["Dependents"].astype(str) == "Yes").values,
-        "Zone de forte densité": (df_sil["zone"] == "forte densité").values}, seed)
+        "Zone de forte densité": (df_sil["zone"] == "forte densité").values}, seed,
+        noms_features=noms_apres_encodage(prep_lin))
+    R["audit_proxies_note"] = ("AUC de reconstruction d'un attribut protégé à partir des seules variables du modèle, en validation "
+                               "croisée : 0,5 = aucune information, 1 = attribut entièrement reconstructible. Les variables qui le "
+                               "reconstruisent sont nommées pour que leur retrait soit chiffrable — voir l'ablation « − top-3 proxies d'âge ».")
 
-    # Mitigation testée : un seuil par tranche d'âge, calé sur le rappel Détracteur global du modèle
+    # Mitigation testée : un seuil de décision par tranche d'âge. Deux points de méthode, tous deux
+    # nécessaires pour que le chiffre annoncé soit celui qu'on obtiendra en production.
+    #  (1) Les seuils sont calibrés SUR LES RÉPONDANTS puis appliqués aux silencieux. Les calibrer
+    #      sur les silencieux eux-mêmes égaliserait les rappels par construction : on mesurerait
+    #      l'ajustement, pas la mitigation. La variante in-sample est calculée quand même, pour
+    #      montrer l'écart entre la promesse théorique et le résultat réel.
+    #  (2) Deux politiques sont chiffrées, parce qu'elles ne coûtent pas la même chose : le
+    #      « nivellement » ramène tous les groupes au rappel global — ce qui ABAISSE la couverture
+    #      des groupes aujourd'hui les mieux servis ; le « rattrapage » ne relève que le groupe le
+    #      moins bien servi, au prix d'appels supplémentaires. L'arbitrage revient au métier.
     rappel_global = R["modele_final"]["metriques_retenues"]["par_classe"]["Detracteur"]["rappel"]
     avant = {g: v for g, v in R["audit_equite"].get("tranche_age", {}).get("groupes", {}).items()}
-    apres = seuils_par_groupe(y[sil], proba_sil[:, i_det], df_sil["tranche_age"].values, rappel_cible=round(rappel_global, 2))
-    pred_mit = pred_sil.copy()
-    for g, v in apres.items():
-        mg = (df_sil["tranche_age"].values == g)
-        pred_mit[mg] = np.where(proba_sil[mg, i_det] >= v["seuil"], "Detracteur", np.where(pred_sil[mg] == "Detracteur", "Passif", pred_sil[mg]))
-    m_mit = metriques(y[sil], pred_mit, proba_sil, classes)
-    R["mitigation_seuils_age"] = {"rappel_cible": round(rappel_global, 4), "avant": avant, "apres": apres,
-                                  "global_avant": resume(R["modele_final"]["metriques_retenues"]), "global_apres": resume(m_mit),
-                                  "appels_avant": int((pred_sil == "Detracteur").sum()), "appels_apres": int((pred_mit == "Detracteur").sum())}
+    ages_rep = pd.cut(df.loc[rep, "Age"], [0, 30, 45, 60, 120], right=False,
+                      labels=["<30", "30-45", "45-60", "60+"]).astype(str).values
+    ages_sil = df_sil["tranche_age"].values
+    cls_dec = list(pipeline_decision.classes_)
+    proba_rep_det = pipeline_decision.predict_proba(Xr)[:, cls_dec.index("Detracteur")]
+    mit = mitigation_seuils(yr, proba_rep_det, ages_rep, y[sil], proba_sil[:, i_det], ages_sil,
+                            pred_sil, rappel_cible=round(rappel_global, 2))
+    pred_niv = mit.pop("pred_hors_echantillon"); pred_ins = mit.pop("pred_in_sample")
 
-    # Drivers : contributions à la classe Détracteur, globales et par segment
+    groupe_faible = min(avant, key=lambda g: avant[g]["rappel_detracteur"]) if avant else None
+    seuils_rat = {g: v for g, v in seuils_par_groupe(yr, proba_rep_det, ages_rep, round(rappel_global, 2)).items() if g == groupe_faible}
+    pred_rat = appliquer_seuils(pred_sil, proba_sil[:, i_det], ages_sil, seuils_rat)
+
+    def _bilan(pred):
+        mm_ = cfg["metier"]
+        n = int((pred == "Detracteur").sum())
+        vrais = int(((pred == "Detracteur") & (y[sil] == "Detracteur")).sum())
+        rappels = {g: round(float(((pred == "Detracteur") & (y[sil] == "Detracteur") & (ages_sil == g)).sum()
+                                  / max(int(((y[sil] == "Detracteur") & (ages_sil == g)).sum()), 1)), 4) for g in sorted(avant)}
+        return {"global": resume(metriques(y[sil], pred, proba_sil, classes)), "rappels_par_groupe": rappels,
+                "ecart_max_rappel": round(max(rappels.values()) - min(rappels.values()), 4) if rappels else None,
+                "appels": n, "vrais_detracteurs_appeles": vrais,
+                "gain_net_eur": round(vrais * mm_["taux_succes_appel"] * mm_["valeur_client_retenu_eur"] - n * mm_["cout_appel_eur"])}
+
+    R["mitigation_seuils_age"] = {
+        "rappel_cible": round(rappel_global, 4), "avant": avant, **mit,
+        "politiques": {
+            "aucune (seuil unique, classe la plus probable)": _bilan(pred_sil),
+            "nivellement — seuils appris sur les répondants, tous les groupes visent le rappel global": _bilan(pred_niv),
+            "rattrapage — seul le groupe le moins bien servi (" + str(groupe_faible) + ") est relevé": _bilan(pred_rat),
+            "nivellement in-sample — seuils calés sur les silencieux (optimiste, pour comparaison)": _bilan(pred_ins)},
+        "note_methode": ("les seuils retenus sont appris sur les répondants et appliqués aux silencieux ; la variante in-sample, "
+                         "calée sur les silencieux eux-mêmes, égalise les rappels par construction et surestime le bénéfice réel"),
+        # clés conservées pour les rapports existants
+        "apres": mit["seuils_hors_echantillon"], "global_avant": resume(R["modele_final"]["metriques_retenues"]),
+        "global_apres": resume(metriques(y[sil], pred_niv, proba_sil, classes)),
+        "appels_avant": int((pred_sil == "Detracteur").sum()), "appels_apres": int((pred_niv == "Detracteur").sum())}
+
+    # Drivers : contributions à la classe Détracteur, agrégées par variable d'origine, globales et
+    # par segment. Trois précautions, toutes nécessaires pour que le tableau dise ce qu'il montre :
+    #  - les colonnes one-hot d'une même variable sont SOMMÉES avant tout classement, sinon
+    #    `Online Security_No` et `Online Security_Yes` figurent comme deux variables opposées ;
+    #  - le sens d'un driver dépend de la NATURE de la variable. Ni la corrélation valeur ↔
+    #    contribution (±1 par construction pour un modèle additif), ni la contribution moyenne
+    #    (≈ 0 pour une variable numérique standardisée) ne le donnent. Pour une numérique on prend
+    #    le signe de moyenne(valeur × contribution) ; pour une catégorielle on nomme la modalité
+    #    qui pousse et celle qui protège ;
+    #  - le modèle retenu est additif : un coefficient ne change pas d'un segment à l'autre. Un
+    #    « driver de segment » est un effet de composition, pas un effet propre — et la variable
+    #    qui définit le segment est retirée de son propre classement.
+    contributions_clients = None
     try:
-        C, methode = contributions_detracteur(final, X[sil], seed)
-        Xnum_sil = pd.DataFrame(np.asarray(prep_lin.transform(X.loc[C.index]), dtype=float), index=C.index, columns=noms_apres_encodage(prep_lin))
+        C_brut, methode = contributions_detracteur(final, X[sil], seed)
+        C = agreger_par_variable(C_brut, cat)
         imp = C.abs().mean().sort_values(ascending=False)
-        direction = {}
-        for v in imp.index[:25]:
-            xv = Xnum_sil[v] if v in Xnum_sil else None
-            if xv is not None and xv.std() > 0 and C[v].std() > 0:
-                direction[v] = float(np.corrcoef(xv, C[v])[0, 1])
+        moy = C.mean()
+        # Sens de l'effet, calculé selon la nature de la variable (voir la note ci-dessus).
+        Xt_brut = pd.DataFrame(np.asarray(prep_f.transform(X.loc[C_brut.index]), dtype=float),
+                               index=C_brut.index, columns=list(C_brut.columns))
+        origine = {}
+        for col in C_brut.columns:
+            base = next((c for c in cat if col.startswith(c + "_")), col)
+            for nom_bloc, membres in BLOCS_DRIVERS.items():
+                if base in membres:
+                    base = nom_bloc
+            origine.setdefault(base, []).append(col)
+
+        sens, detail_sens = {}, {}
+        for var, cols in origine.items():
+            est_cat = any(any(c.startswith(cc + "_") for cc in cat) for c in cols)
+            if est_cat:
+                # Une variable catégorielle n'a pas de sens global : ce sont ses modalités qui
+                # poussent ou protègent. On nomme les deux extrêmes.
+                effets = {}
+                for c in cols:
+                    m_ = Xt_brut[c] > 0.5
+                    if m_.sum() >= 30:
+                        prefixe = next((cc for cc in cat if c.startswith(cc + "_")), "")
+                        effets[c[len(prefixe) + 1:] if prefixe else c] = float(C_brut.loc[m_, c].mean())
+                if not effets:
+                    continue
+                pousse = max(effets, key=effets.get); protege = min(effets, key=effets.get)
+                sens[var] = f"▲ « {pousse} » pousse vers la détraction"
+                detail_sens[var] = {"nature": "catégorielle", "modalite_la_plus_a_risque": pousse,
+                                    "effet_de_cette_modalite": round(effets[pousse], 4),
+                                    "modalite_la_plus_protectrice": protege,
+                                    "effet_de_cette_modalite_protectrice": round(effets[protege], 4)}
             else:
-                direction[v] = float(np.sign(C[v].mean()))
-        segs = {"Contrat mensuel": df.loc[C.index, "Contract"] == "Month-to-Month", "Contrat 1–2 ans": df.loc[C.index, "Contract"] != "Month-to-Month",
-                "Ancienneté < 12 mois": df.loc[C.index, "Tenure in Months"] < 12, "Ancienneté ≥ 24 mois": df.loc[C.index, "Tenure in Months"] >= 24,
-                "Fibre": df.loc[C.index, "Internet Type"] == "Fiber Optic", "DSL": df.loc[C.index, "Internet Type"] == "DSL"}
+                # Numérique : signe de moyenne(valeur × contribution) — celui du coefficient.
+                pente = float(sum((Xt_brut[c] * C_brut[c]).mean() for c in cols))
+                sens[var] = ("▲ une valeur élevée pousse vers la détraction" if pente > 0
+                             else "▼ une valeur élevée protège")
+                detail_sens[var] = {"nature": "numérique", "effet_signe": round(pente, 4)}
+        segs = {"Contrat mensuel": (df.loc[C.index, "Contract"] == "Month-to-Month", ["Contract"]),
+                "Contrat 1–2 ans": (df.loc[C.index, "Contract"] != "Month-to-Month", ["Contract"]),
+                "Ancienneté < 12 mois": (df.loc[C.index, "Tenure in Months"] < 12, ["Ancienneté"]),
+                "Ancienneté ≥ 24 mois": (df.loc[C.index, "Tenure in Months"] >= 24, ["Ancienneté"]),
+                "Fibre": (df.loc[C.index, "Internet Type"] == "Fiber Optic", ["Internet Type"]),
+                "DSL": (df.loc[C.index, "Internet Type"] == "DSL", ["Internet Type"])}
         par_segment = {}
-        for lib, mk_ in segs.items():
+        for lib, (mk_, definissantes) in segs.items():
             sub = C[mk_.values]
             if len(sub) < 30:
                 continue
-            top = sub.abs().mean().sort_values(ascending=False).head(8)
-            par_segment[lib] = {"clients": int(len(sub)), "drivers": {v: {"importance": round(float(top[v]), 4),
-                                                                          "sens": "▲ risque" if sub[v].mean() > 0 else "▼ risque"} for v in top.index}}
-        R["drivers"] = {"methode": methode, "importance_detracteur": imp.head(20).round(4).to_dict(),
-                        "direction": {k: round(v, 3) for k, v in direction.items()}, "par_segment": par_segment,
-                        "n_lignes_expliquees": int(len(C))}
+            colonnes = [c for c in sub.columns if c not in definissantes and float(sub[c].std()) > 1e-12]
+            top = sub[colonnes].abs().mean().sort_values(ascending=False).head(8)
+            # On ne publie PAS de « sens » propre au segment : le modèle est additif, le sens d'une
+            # variable y est le même partout, et une moyenne de contributions sur une variable
+            # numérique standardisée ne mesure de toute façon rien. Ce qui varie d'un segment à
+            # l'autre, et qui est donc seul publié ici, c'est le POIDS de la variable.
+            par_segment[lib] = {"clients": int(len(sub)), "variables_exclues": definissantes,
+                                "drivers": {v: {"importance": round(float(top[v]), 4),
+                                                "sens_global": sens.get(v, "—")}
+                                            for v in top.index}}
+        R["drivers"] = {
+            "methode": methode,
+            "agregation": "contributions sommées par variable d'origine (modalités one-hot regroupées ; blocs parrainage, ancienneté, facture mensuelle)",
+            "perimetre": (str(int(len(C))) + " clients silencieux ; segments d'ancienneté « < 12 mois » et « ≥ 24 mois » (la bande 12–24 mois "
+                          "est volontairement écartée pour contraster) ; accès « Fibre » et « DSL » (câble et sans internet non représentés)"),
+            "importance_detracteur": imp.head(20).round(4).to_dict(),
+            "contribution_moyenne": {v: round(float(moy[v]), 4) for v in imp.index[:20]},
+            "sens": {v: sens.get(v, "—") for v in imp.index[:20]},
+            "detail_sens": {v: detail_sens.get(v, {}) for v in imp.index[:20]},
+            "legende_sens": ("▲ = pousse vers la détraction, ▼ = protège. Pour une variable numérique, le sens est celui "
+                             "de l'effet d'une valeur élevée ; pour une variable catégorielle, la modalité en cause est "
+                             "nommée, car « Contract » ne pousse ni ne protège en soi — c'est « Month-to-Month » qui pousse. "
+                             "⚠️ La colonne « contribution moyenne » ne donne PAS le sens : pour une variable numérique "
+                             "standardisée elle vaut environ zéro par construction."),
+            "avertissement_segments": ("le modèle retenu est additif, sans interaction : le coefficient d'une variable est le même dans "
+                                       "tous les segments. Ce tableau indique où chaque variable PÈSE le plus (effet de composition), pas "
+                                       "un effet propre au segment ; la variable qui définit le segment est exclue de son classement."),
+            "par_segment": par_segment, "n_lignes_expliquees": int(len(C))}
+        contributions_clients = C
     except Exception as e:
         R["drivers"] = {"erreur": f"{type(e).__name__}: {str(e)[:200]}"}
 
-    # Leviers recommandés : règle documentée, distribution parmi les détracteurs prédits
+    # Leviers recommandés : dérivés des contributions individuelles, donc réellement discriminants
+    # entre deux clients au même contrat (voir la docstring de `levier`).
     med_charge = float(df["charge_par_service"].median())
-    leviers = df.apply(lambda r: levier(r, med_charge), axis=1)
-    R["leviers"] = {"regle": ["1. contrat mensuel → proposer un engagement 12 mois avec avantage",
-                              "2. sinon charge par service > médiane → revue tarifaire / bundle",
-                              "3. sinon ancienneté < 12 mois → parcours d'accueil renforcé",
-                              "4. sinon internet sans support premium → proposer le support technique premium",
-                              "5. sinon → appel de courtoisie et diagnostic"],
-                    "distribution_detracteurs_predits": leviers[sil][pred_sil == "Detracteur"].value_counts().to_dict(),
-                    "mediane_charge_par_service": round(med_charge, 2),
-                    "avertissement": "heuristique dérivée des drivers (associations), pas d'un effet causal mesuré"}
+    if contributions_clients is not None:
+        C_tous = agreger_par_variable(contributions_detracteur(final, X, seed, max_lignes=len(X))[0], cat)
+        rangs = [leviers_ordonnes(df.loc[i], med_charge, C_tous.loc[i] if i in C_tous.index else None) for i in df.index]
+        origine_levier = "contribution individuelle à P(Détracteur), agrégée par variable d'origine"
+    else:
+        rangs = [leviers_ordonnes(r, med_charge) for _, r in df.iterrows()]
+        origine_levier = "repli : cascade d'actionnabilité (contributions indisponibles)"
+    leviers = pd.Series([r[0] for r in rangs], index=df.index)
+    leviers2 = pd.Series([r[1] if len(r) > 1 else "—" for r in rangs], index=df.index)
+    det = pred_sil == "Detracteur"
+    dist = leviers[sil][det].value_counts()
+    dist2 = leviers2[sil][det].value_counts()
+    paires = (leviers[sil][det] + "  ▸  " + leviers2[sil][det]).value_counts()
+    R["leviers"] = {
+        "origine": origine_levier,
+        "regle": ["le levier retenu est le premier levier actionnable parmi les facteurs de risque propres au client, "
+                  "classés par contribution décroissante à P(Détracteur)",
+                  *[nom + " → " + lev["libelle"] + " — déclenché par : " + ", ".join(lev["variables"][:3])
+                    for nom, lev in LEVIERS_ACTIONNABLES.items()],
+                  "aucun levier actionnable chez ce client → " + LEVIER_DEFAUT],
+        "distribution_detracteurs_predits": dist.to_dict(),
+        "distribution_levier_secondaire": dist2.to_dict(),
+        "distribution_paires": paires.head(10).to_dict(),
+        "concentration_du_levier_dominant": round(float(dist.iloc[0] / dist.sum()), 4) if len(dist) else None,
+        "concentration_de_la_paire_dominante": round(float(paires.iloc[0] / paires.sum()), 4) if len(paires) else None,
+        "n_leviers_distincts_en_second": int(len(dist2)),
+        "lecture": ("le premier levier est concentré parce que la base l'est : le contrat mensuel est à la fois le "
+                    "premier facteur de risque et la situation de la quasi-totalité des détracteurs prédits. La "
+                    "recommandation reste vraie, mais elle ne trie pas — c'est le SECOND levier qui différencie deux "
+                    "clients également mensuels, et c'est pourquoi les deux sont livrés."),
+        "mediane_charge_par_service": round(med_charge, 2),
+        "avertissement": ("heuristique dérivée des drivers — donc d'associations, pas d'un effet causal mesuré. Un levier est une "
+                          "hypothèse à tester en campagne, avec groupe de contrôle (10 à 20 % des ciblés non appelés).")}
+
+    # [18] Sensibilité au mapping de la cible, calculée ici et non à la rédaction du rapport : le
+    # modèle RETENU est réajusté sous M1, M2 et M3 sur les mêmes répondants, et l'on regarde ce qui
+    # bouge. Les kappas ne sont PAS comparables d'un mapping à l'autre (la tâche change) ; ce qui se
+    # compare est le SENS des effets et l'effet métier.
+    try:
+        coefs, effet = {}, {}
+        for mp in ("M1", "M2", "M3"):
+            ym = cibles[mp].astype(str).values
+            mm = clone(base_final); entrainer(mm, Xr, ym[rep], y_continu=sr)
+            coefs[mp] = agreger_par_variable(contributions_detracteur(mm, X[sil], seed)[0], cat).mean()
+            prm = mm.predict_proba(X[sil]); cm = list(mm.classes_)
+            pkm = precision_at_k(ym[sil], prm[:, cm.index("Detracteur")], cfg["metier"]["k_appels"])
+            effet[mp] = {"part_detracteurs_predits": round(float((np.asarray(mm.predict(X[sil])).astype(str) == "Detracteur").mean()), 4),
+                         "precision_at_k": pkm["precision_at_k"], "lift": pkm["lift"], "taux_de_base": pkm["taux_de_base"]}
+        S = pd.DataFrame(coefs).dropna()
+        top = S.loc[S["M3"].abs().sort_values(ascending=False).head(12).index]
+        instables = [v for v in top.index if len(set(np.sign(top.loc[v].values))) > 1]
+        R["sensibilite_mapping"] = {
+            "methode": "modèle retenu réajusté sous chaque mapping, mêmes répondants S3 ; contributions moyennes signées agrégées par variable",
+            "coefficients": top.round(4).to_dict(orient="index"),
+            "n_variables_examinees": int(len(top)), "variables_instables": instables, "n_stables": int(len(top) - len(instables)),
+            "effet_metier": effet,
+            "avertissement": ("les kappas ne se comparent pas entre mappings — la difficulté de la tâche change ; seuls le sens des "
+                              "effets et l'effet métier se comparent")}
+    except Exception as e:
+        R["sensibilite_mapping"] = {"erreur": f"{type(e).__name__}: {str(e)[:200]}"}
+
+    # [1] Critères de succès chiffrés AVANT la modélisation (config.yaml) : vérifiés ici, un par un,
+    # pour que la réussite ne se décrète pas après coup.
+    cs = cfg["criteres_succes"]
+    eco = R["evaluation_metier"]["economie"]; pk = R["evaluation_metier"]["precision_at_k"]
+    rappels_classes = {c: R["modele_final"]["metriques_retenues"]["par_classe"][c]["rappel"] for c in ORDRE}
+    ecarts_eq = {d: v["ecart_max"] for d, v in R["audit_equite"].items()}
+    verif = [
+        {"critere": "lift ≥ " + str(cs["lift_min"]), "valeur": pk["lift"], "seuil": cs["lift_min"],
+         "atteint": bool(pk["lift"] >= cs["lift_min"])},
+        {"critere": "précision@" + str(pk["k"]) + " ≥ " + f"{cs['precision_at_k_min']:.0%}", "valeur": pk["precision_at_k"],
+         "seuil": cs["precision_at_k_min"], "atteint": bool(pk["precision_at_k"] >= cs["precision_at_k_min"])},
+        {"critere": "gain net > " + str(cs["gain_net_min_eur"]) + " €", "valeur": eco["gain_net_eur"],
+         "seuil": cs["gain_net_min_eur"], "atteint": bool(eco["gain_net_eur"] > cs["gain_net_min_eur"])},
+        {"critere": "rappel ≥ " + f"{cs['rappel_min_par_classe']:.0%}" + " pour les trois classes",
+         "valeur": round(min(rappels_classes.values()), 4), "seuil": cs["rappel_min_par_classe"],
+         "atteint": bool(min(rappels_classes.values()) >= cs["rappel_min_par_classe"]), "detail": rappels_classes},
+        {"critere": "écart d'équité signalé au-delà de " + f"{cs['ecart_equite_signalement']:.0%}",
+         "valeur": round(max(ecarts_eq.values()), 4) if ecarts_eq else None, "seuil": cs["ecart_equite_signalement"],
+         "atteint": True, "signalement": {d: e for d, e in ecarts_eq.items() if e > cs["ecart_equite_signalement"]},
+         "note": "critère de signalement, pas de rejet : un écart supérieur au seuil doit être publié et arbitré, jamais masqué"},
+    ]
+    R["criteres_succes"] = {"definis_a_l_etape_1": cs, "verification": verif,
+                            "tous_atteints": bool(all(v["atteint"] for v in verif))}
 
     # ======================================================================== [8] persistance
     print("[8/8] Persistance")
@@ -542,7 +836,9 @@ def main() -> dict:
     sortie["proba_detracteur"] = final_cal.predict_proba(X)[:, i_det]
     sortie["prediction"] = pred_tous
     sortie["levier_recommande"] = leviers.values
-    sortie["tranche_age"] = pd.cut(sortie["Age"], [0, 30, 45, 60, 120], labels=["<30", "30-45", "45-60", "60+"]).astype(str)
+    sortie["levier_secondaire"] = leviers2.values
+    sortie["tranche_age"] = pd.cut(sortie["Age"], [0, 30, 45, 60, 120], right=False,
+                                   labels=["<30", "30-45", "45-60", "60+"]).astype(str)
     sortie.to_parquet(traite / "clients_scores.parquet", index=False)
 
     joblib.dump({"pipeline": final_cal, "pipeline_brut": final, "pipeline_decision": pipeline_decision, "classes": classes,

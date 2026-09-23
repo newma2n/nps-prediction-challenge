@@ -33,7 +33,7 @@ from sklearn.metrics import average_precision_score, precision_recall_curve
 from .data import RACINE, charger_config, charger_tables, joindre, preparer, registre_fuites
 from .evaluate import JUSTIFICATION_METRIQUES
 from .features import HYPOTHESES_DERIVEES, JUSTIFICATION_BRUTES, colonnes_modele, construire, noms_apres_encodage
-from .models import CATALOGUE, FAMILLE, construire_modeles, entrainer
+from .models import CATALOGUE, FAMILLE, JUSTIFICATION_SIMPLICITE, SIMPLICITE, construire_modeles, entrainer
 from .protocol import decouper
 from .target import ORDRE, construire_cibles, nps
 
@@ -66,7 +66,10 @@ def _tab(df: pd.DataFrame, fmt: dict | None = None) -> str:
     if fmt:
         for c, f in fmt.items():
             if c in d:
-                d[c] = d[c].map(lambda v: (f.format(v) if not isinstance(v, str) else v) if pd.notna(v) else "")
+                # `f` peut être un gabarit ("{:.1%}") ou une fonction (_eur) : les montants en euros
+                # demandent une espace comme séparateur de milliers, ce qu'aucun gabarit ne fait.
+                mef = f if callable(f) else f.format
+                d[c] = d[c].map(lambda v, _m=mef: (_m(v) if not isinstance(v, str) else v) if pd.notna(v) else "")
     cols = [str(c) for c in d.columns]
     lignes = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     for _, r in d.iterrows():
@@ -136,6 +139,30 @@ def _decisions(lignes: list[tuple[str, str, str]]) -> str:
 # =============================================================================
 def phase1(cfg, R):
     m = cfg["metier"]; pk = R["evaluation_metier"]["precision_at_k"]
+    cs = cfg["criteres_succes"]
+    # Baseline explicite : la logistique multinomiale, premier modèle du catalogue. Les deux
+    # critères « data science » se comparent à elle, et le rappel Détracteur est rapporté même
+    # lorsqu'il est en défaveur du modèle retenu : c'est le cas, et le masquer serait malhonnête.
+    mret = R["modele_final"]["metriques_retenues"]
+    mf_k = mret["kappa_quadratique"]; mf_rd = mret["par_classe"]["Detracteur"]["rappel"]
+    _base = next((c for c in R["selection_modele_final"]["classement"] if c["modele"] == "logistique"), None)
+    k_log_1 = _base["kappa_silencieux"] if _base else float("nan")
+    rd_log_1 = _base.get("rappel_detracteur_silencieux", float("nan")) if _base else float("nan")
+    min_rappel_1 = min(mret["par_classe"][c]["rappel"] for c in ORDRE)
+    pk_log = _base.get("precision_at_k") if _base else None
+    if mf_rd >= rd_log_1 - 0.005:
+        critere_rappel_txt = ""
+    else:
+        critere_rappel_txt = (
+            "**Le critère de rappel Détracteur n'est pas atteint, et ce n'est pas un oubli.** La "
+            f"baseline logistique capte {rd_log_1:.0%} des détracteurs contre {mf_rd:.0%} pour le modèle retenu. "
+            "Elle y parvient en prédisant « Détracteur » beaucoup plus souvent : sa précision est plus "
+            "faible, et surtout elle écrase la classe Passif. Le critère métier — qui décide réellement "
+            "de l'usage — départage dans l'autre sens : à capacité d'appel égale, c'est la précision@K "
+            f"qui compte, et elle vaut {pk['precision_at_k']:.0%}"
+            + (f" contre {pk_log:.0%} pour la baseline" if pk_log else "") + ". "
+            "Le rappel brut d'un classifieur qui sur-prédit une classe n'est pas une performance ; on le "
+            "publie en défaveur du modèle retenu, avec la raison de ne pas le suivre. Détail en phase 4 § 6.\n")
     _md("01_comprehension_metier.md", f"""
 # Phase 1 — Compréhension métier
 
@@ -155,13 +182,21 @@ avant toute ligne de code.
 
 ## 2. Critères de succès, fixés a priori
 
-| Niveau | Critère | Cible | Résultat (phase 5) |
-|---|---|---|---|
-| Métier | Précision@K sur les détracteurs, K = {m['k_appels']} appels/mois | nettement au-dessus du taux de base | {pk['precision_at_k']:.0%} vs {pk['taux_de_base']:.0%} (×{pk['lift']:.1f}) |
-| Métier | Gain net d'une campagne ciblée vs ciblage aléatoire | positif, chiffré en euros | {_eur(R['evaluation_metier']['economie']['gain_apporte_par_le_modele_eur'])} par campagne |
-| Data science | Kappa quadratique pondéré et rappel Détracteur | au niveau de la baseline ou au-dessus | voir phase 4 § 6 |
-| Data science | Aucune classe abandonnée | rappel > 0,05 sur les trois classes | vérifié (test automatisé) |
-| Éthique | Écart de rappel Détracteur entre sous-groupes | mesuré, signalé s'il dépasse 10 points | {R['audit_equite']['tranche_age']['ecart_max']*100:.0f} pts sur l'âge, signalé |
+Les seuils ci-dessous sont écrits dans `config.yaml` (section `criteres_succes`), vérifiés par le
+pipeline (clé `criteres_succes` de `resultats.json`) et verrouillés par un test automatisé. Un
+critère qu'on ne peut pas rater n'est pas un critère : chacun a donc une valeur numérique décidée
+avant la modélisation, et le tableau affiche le résultat obtenu à côté.
+
+| Niveau | Critère | Cible chiffrée a priori | Résultat (phase 5) | |
+|---|---|---|---|---|
+| Métier | Précision@K sur les détracteurs, K = {m['k_appels']} appels/mois | ≥ {cs['precision_at_k_min']:.0%}, et lift ≥ {cs['lift_min']:g} | {pk['precision_at_k']:.0%} vs {pk['taux_de_base']:.0%} de base (×{pk['lift']:.1f}) | {'✅' if pk['precision_at_k'] >= cs['precision_at_k_min'] and pk['lift'] >= cs['lift_min'] else '⚠️'} |
+| Métier | Gain net d'une campagne ciblée vs ciblage aléatoire | > {cs['gain_net_min_eur']} € | {_eur(R['evaluation_metier']['economie']['gain_apporte_par_le_modele_eur'])} apportés par le modèle | {'✅' if R['evaluation_metier']['economie']['gain_net_eur'] > cs['gain_net_min_eur'] else '⚠️'} |
+| Data science | Kappa quadratique pondéré, modèle retenu vs baseline logistique | au niveau de la baseline ou au-dessus | {mf_k:.3f} contre {k_log_1:.3f} | {'✅' if mf_k >= k_log_1 - 0.005 else '⚠️'} |
+| Data science | Rappel Détracteur, modèle retenu vs baseline logistique | au niveau de la baseline ou au-dessus | {mf_rd:.3f} contre {rd_log_1:.3f} | {'✅' if mf_rd >= rd_log_1 - 0.005 else '⚠️ **non atteint** — voir ci-dessous'} |
+| Data science | Aucune classe abandonnée | rappel ≥ {cs['rappel_min_par_classe']:.0%} sur les trois classes | minimum {min_rappel_1:.0%} | {'✅' if min_rappel_1 >= cs['rappel_min_par_classe'] else '⚠️'} |
+| Éthique | Écart de rappel Détracteur entre sous-groupes | mesuré, **signalé** au-delà de {cs['ecart_equite_signalement']:.0%} | {R['audit_equite']['tranche_age']['ecart_max']*100:.0f} pts sur l'âge | ⚠️ signalé (phase 5 § 7) |
+
+{critere_rappel_txt}
 
 ## 3. Formulation du problème d'apprentissage
 
@@ -182,9 +217,30 @@ le comportement métier correct sur une cible ordonnée.
 
 ## 5. Contraintes et ce qu'elles interdisent
 
+### 5.1 Contraintes de données
+
 Dataset fictif (IBM), une seule photographie, aucun historique, aucune campagne de rétention
 enregistrée. Conséquence directe : **aucune estimation d'effet causal n'est possible** — le modèle
 classe par risque, pas par sensibilité à l'appel (phase 5 § 8, phase 6 § 5).
+
+### 5.2 Contraintes de projet : deux semaines, et la gestion du périmètre
+
+L'énoncé fixe une limite de deux semaines et annonce valoriser *« thoughtful scope management more
+than over-engineering »* (§ 1). Le périmètre a donc été arbitré explicitement, et les refus sont
+documentés au même titre que les ajouts.
+
+| Décision | Sens | Raison |
+|---|---|---|
+| Quinze modèles, sept familles | **dans** le périmètre | l'exigence minimale est « au moins deux familles ». La grille sert à **mesurer le plafond de signal** des données, pas à chercher un meilleur score : quand quinze modèles très différents plafonnent au même endroit, la limite vient des données, et c'est cette conclusion qui est utile au métier. Coût réel : {R['duree_s']/60:.0f} minutes d'exécution, une seule fois. |
+| CORAL / CORN (réseaux ordinaux) | **hors** périmètre | environ 1 000 lignes d'entraînement : un réseau profond n'a aucune chance de battre un modèle linéaire régularisé. Cités et écartés avec l'argument (phase 4 § 3). |
+| Enrichissement Census par code postal | **hors** périmètre | voir phase 2 § 6 : l'affectation des clients aux codes postaux est produite par le générateur d'IBM. |
+| MLflow | **hors** périmètre | une seule exécution déterministe, tracée par `resultats.json` et le seed : un serveur de suivi n'ajouterait rien ici. |
+| TabPFN 2.5 | **partiellement hors** périmètre | bloqué par une acceptation de licence externe ; TabICL et TabPFN v2 sont évalués à sa place (phase 4 § 8). |
+| Appels d'API payants pour les verbatims | **hors** périmètre | le bonus texte est traité avec des textes rédigés hors ligne et assemblés localement, de façon reproductible (phase 4 § 9). |
+
+Ce que cette contrainte **n'a pas** permis : entraîner un modèle par segment, tester l'enrichissement
+externe, et mener une véritable campagne avec groupe de contrôle — la seule façon de passer du
+risque à la sensibilité (phase 6 § 5).
 
 ## 6. Registre de risques
 
@@ -197,7 +253,7 @@ classe par risque, pas par sensibilité à l'appel (phase 5 § 8, phase 6 § 5).
 | Livrable non reproductible | seed unique, `python -m src.run`, test à blanc depuis copie vierge, tests automatisés |
 
 {_decisions([
-    ("Cible traitée comme ordonnée et déséquilibrée", "trois classes ordonnées par construction ; Passif = 38 % de la base, Détracteur = 20 %", "phase 3 § 4"),
+    ("Cible traitée comme ordonnée et déséquilibrée", f"trois classes ordonnées par construction ; Passif = {R['desequilibre']['distribution_base']['Passif']:.0%} de la base, Détracteur = {R['desequilibre']['distribution_base']['Detracteur']:.0%}", "phase 3 § 4"),
     ("Métrique principale = kappa quadratique pondéré", "seule métrique usuelle qui distingue une erreur d'un cran d'une erreur de deux crans", "phase 5 § 1"),
     ("Critères de succès chiffrés avant modélisation", "exigence CRISP-DM ; évite de choisir la métrique qui arrange", "ce document § 2"),
 ])}
@@ -254,6 +310,23 @@ def phase2(cfg, df_raw, df, qualite, R):
         ax.boxplot([df_raw.loc[df_raw[cible] == k, c].dropna() for k in [1, 2, 3, 4, 5]], labels=["1", "2", "3", "4", "5"], showfliers=False)
         ax.set_title(f"{c} par satisfaction", fontsize=8)
     f_num = _fig("02_eda_numeriques.png")
+    # Lecture chiffrée plutôt qu'un adverbe : « croissent nettement » ne dit pas de combien, et un
+    # lecteur ne peut ni le vérifier ni s'en servir. On rapporte l'écart entre les notes extrêmes.
+    _mots = []
+    for c in nums:
+        bas = float(df_raw.loc[df_raw[cible].isin([1, 2]), c].median())
+        haut = float(df_raw.loc[df_raw[cible].isin([4, 5]), c].median())
+        if bas == 0 and haut == 0:
+            continue
+        ecart = haut - bas
+        rel = ecart / bas if bas else float("inf")
+        _mots.append((abs(rel), f"**{c}** passe d'une médiane de {bas:,.0f} chez les notes 1–2 à {haut:,.0f} chez les 4–5"
+                                .replace(",", " ")))
+    _mots.sort(reverse=True)
+    lecture_num_eda = ("Écarts de médiane entre les notes basses (1–2) et hautes (4–5) : "
+                       + " ; ".join(m for _, m in _mots) + ". "
+                       + "Les variables de relation — ancienneté, parrainage — séparent bien mieux les extrêmes que "
+                         "les variables de consommation, ce qui oriente la sélection de features (phase 3 § 3).")
 
     cats = ["Contract", "Offer", "Internet Type", "Payment Method", "Paperless Billing", "Premium Tech Support", "Online Security",
             "Referred a Friend", "Unlimited Data", "Gender", "Married", "Senior Citizen", "Dependents"]
@@ -308,11 +381,20 @@ clients sont restés ; (2) le dataset **contient sa propre réponse** — satisf
 | demographics | 7 043 × 9 | Customer ID | genre, âge, situation familiale |
 | location | 7 043 × 9 | Customer ID | ville, code postal, coordonnées |
 | population | 1 671 × 3 | Zip Code | population du code postal |
-| services | 7 043 × 30 | Customer ID | contrat, services, facturation, parrainage, **Satisfaction Score** |
-| status | 7 043 × 11 | Customer ID | churn (label, valeur, score, catégorie, raison), CLTV |
+| services | 7 043 × 30 | Customer ID | contrat, services, facturation, parrainage |
+| status | 7 043 × 11 | Customer ID | **Satisfaction Score**, statut client, churn (label, valeur, score, catégorie, raison), CLTV |
 
-Jointure interne sur `Customer ID`, `population` rattachée par `Zip Code`. Porte de contrôle :
-**{len(df_raw)} lignes** après jointure, {qualite['doublons_id']} doublon d'identifiant (test automatisé).
+Jointure **gauche** à partir de `demographics`, `population` rattachée par `Zip Code`. Deux portes
+de contrôle, pas une : **{len(df_raw)} lignes** après jointure et {qualite['doublons_id']} doublon d'identifiant
+(aucune ligne perdue ni dupliquée), puis une vérification qu'aucun client n'arrive sans ligne de
+services, de statut ou de localisation. Une jointure interne masquerait ce second cas en supprimant
+silencieusement les clients incomplets ; ici, un client incomplet fait échouer le pipeline.
+
+⚠️ **La variable cible vit dans la même table que le churn.** `Satisfaction Score` est livré par IBM
+dans `status`, aux côtés de `Churn Label`, `Churn Value`, `Churn Score`, `Customer Status` et `CLTV`,
+et pour le même trimestre. Ce n'est pas un détail d'intendance : c'est le premier argument du
+registre de fuites (§ 4). Toutes les colonnes qui accompagnent la cible dans cette table ont été
+construites en même temps qu'elle, et aucune n'est disponible au moment où l'on voudrait prédire.
 
 ## 2. Dictionnaire des données
 
@@ -353,6 +435,20 @@ est un client réel, précisément le profil qu'un modèle de détraction doit v
 Satisfaction 1–2 → **100 % de départs** ; 4–5 → **0 %**. Connaître le churn, c'est connaître la
 cible. Or au moment où l'on veut détecter un détracteur, il n'est pas encore parti : l'information
 n'existe pas. Toute colonne liée au churn est donc une fuite — et une fuite de trois natures :
+
+> **Ce que cette séparation parfaite dit vraiment.** L'énoncé présente la satisfaction comme *« a
+> real human-provided signal inside the dataset, not a fabricated label »*. Une relation
+> déterministe parfaite entre une note d'enquête et un départ — aucun client noté 4–5 parti, aucun
+> client noté 1–2 resté — **n'existe dans aucune enquête réelle** : il y a toujours des clients
+> satisfaits qui partent pour un déménagement ou un prix, et des mécontents qui restent par inertie.
+> Le plus probable est donc que, dans cet échantillon IBM, la note ait été rendue cohérente avec le
+> statut de churn au moment de la génération. Nous ne pouvons pas le prouver, et c'est précisément
+> pour cela qu'il faut l'écrire. Deux conséquences, toutes deux tenues dans la suite de l'étude :
+> **(a)** l'exclusion des colonnes de churn n'est pas une précaution parmi d'autres, c'est la
+> condition pour que le travail ait un sens ; **(b)** les performances mesurées ici sont une
+> **borne haute** — sur de vraies réponses, plus bruitées, il faut s'attendre à une dégradation de
+> l'ordre de celle que mesure le test de bruit d'étiquettes (phase 5 § 5.2). La discussion complète
+> de cette limite est en phase 3 § 1.6.
 
 | Nature | Définition | Colonnes | Décision |
 |---|---|---|---|
@@ -400,8 +496,7 @@ que les features retenues révèlent malgré tout de ces attributs en phase 5 §
 La note 3 pèse **{sat[3]} clients, {part3:.1%} de la base**, et {restes3} d'entre eux ({restes3/sat[3]:.0%}) sont toujours clients.
 Où les placer dans la grille NPS décide de tout le reste (phase 3 § 1).
 
-**5.2 Numériques par niveau de satisfaction.** L'ancienneté et le nombre de parrainages croissent
-nettement avec la satisfaction ; la charge mensuelle varie peu.
+**5.2 Numériques par niveau de satisfaction.** {lecture_num_eda}
 
 ![]({f_num})
 
@@ -430,13 +525,27 @@ effet causal dans des données observationnelles ; ce constat fonde les limites 
 ## 6. Enrichissement externe : décision
 
 L'énoncé autorise des sources externes (recensement par code postal, benchmarks télécom) à condition
-d'en justifier la pertinence métier. **Décision : aucune.** Deux raisons. (1) Le dataset contient déjà
-la seule variable de contexte géographique disponible à la maille du client (`Population` du code
-postal), et elle est exclue du modèle au titre de l'équité — ajouter des revenus médians par code
-postal reviendrait à réintroduire par la fenêtre le proxy socio-économique qu'on a sorti par la porte
-(énoncé § 4.7). (2) Le dataset est fictif : un enrichissement réel sur des coordonnées californiennes
-fictives n'aurait aucune validité. Les **benchmarks NPS télécom** publiés sont en revanche utilisés
-comme corroboration externe de la construction de la cible (phase 3 § 1).
+d'en justifier la pertinence métier. **Décision : aucune.** Deux raisons, et la seconde a été reformulée parce que la première version
+était fausse.
+
+**(1) Le proxy qu'on vient d'exclure reviendrait par la fenêtre.** Le dataset contient déjà une
+variable de contexte socio-démographique externe, jointe à la maille du **code postal** et non du
+client (`Population`), et elle est exclue du modèle au titre de l'équité. Ajouter des revenus médians
+par code postal reviendrait à réintroduire le proxy socio-économique qu'on a sorti par la porte
+(énoncé § 4.7).
+
+**(2) La géographie est réelle, mais l'affectation des clients ne l'est pas.** Les codes postaux, les
+villes et les populations sont d'authentiques données californiennes (90022 Los Angeles, 94112 San
+Francisco, 95405 Santa Rosa), et l'énoncé suggère précisément un enrichissement Census sur ces codes
+postaux : techniquement, c'est faisable. Ce qui est fabriqué, c'est **l'attribution de chaque client
+fictif à un code postal**, produite par le générateur d'IBM. Un modèle qui apprendrait sur un revenu
+médian par code postal apprendrait donc ce générateur, pas un comportement de marché — et ne se
+transposerait pas à l'opérateur panafricain du cadrage. *(La rédaction précédente disait « coordonnées
+californiennes fictives » : c'était inexact, la géographie est réelle et cette imprécision affaiblissait
+un argument qui tient sans elle.)*
+
+Les **benchmarks NPS télécom** publiés sont en revanche utilisés comme corroboration externe de la
+construction de la cible, avec leurs sources et leurs réserves (phase 3 § 1.1).
 
 {_decisions([
     ("Jointure interne, porte de contrôle à 7 043 lignes", "aucune perte tolérée ; un client sans ligne de services est une erreur, pas un cas", "test `test_jointure_sans_perte`"),
@@ -455,6 +564,11 @@ comme corroboration externe de la construction de la cible (phase 3 § 1).
 def phase3(cfg, df, cibles, arb, num, cat, R):
     dist = pd.DataFrame({m: cibles[m].value_counts(normalize=True).reindex(ORDRE) for m in ("M1", "M2", "M3")})
     npsv = [nps(cibles[m]) for m in ("M1", "M2", "M3")]
+    _sat3 = pd.to_numeric(df[cfg["colonnes"]["cible"]])
+    part4 = float((_sat3 == 4).mean())
+    n_amb_fmt = f"{arb['n_ambigus']:,}".replace(",", " ")
+    part_3_restes = float((df.loc[_sat3 == 3, "Churn Value"] == 0).mean())   # jamais écrit en dur                                   # poids de la decision 4 -> Promoteur
+    restes3_3 = int(((_sat3 == 3) & (df["Churn Value"] == 0)).sum())     # information propre au bloc des 3
     fig, axes = plt.subplots(1, 2, figsize=(10, 3.2), gridspec_kw={"width_ratios": [1.4, 1]})
     dist.T.plot(kind="bar", stacked=True, ax=axes[0], color=[COUL[c] for c in ORDRE], rot=0)
     axes[0].set_ylabel("part des clients"); axes[0].set_title("Répartition des classes selon le mapping"); axes[0].legend([LIB[c] for c in ORDRE], fontsize=8)
@@ -507,42 +621,117 @@ traduction : c'est à nous de la construire et de la défendre.
 |---|---|---|---|---|---|
 | **M1** | 1, 2, 3 | 4 | 5 | **{npsv[0]:+.1f}** | mapping baseline de l'énoncé (fidèle à l'échelle : 3/5 ≈ 5/10 = détracteur) |
 | **M2** | 1, 2 | 3, 4 | 5 | **{npsv[1]:+.1f}** | recentré : le 3 est le milieu, donc passif |
-| **M3** | 1, 2 | 3 | 4, 5 | **{npsv[2]:+.1f}** | arbitré par les données (§ 1.2) |
+| **M3** | 1, 2 | 3 | 4, 5 | **{npsv[2]:+.1f}** | **retenu** — le « 3 » arbitré par les données (§ 1.2), le « 4 » reclassé par hypothèse d'échelle (§ 1.3) |
 
 ![]({f_cible})
 
 **1.1 Pourquoi M1 pose problème.** M1 est le mapping *fidèle à l'échelle* — et c'est précisément pour
-ça qu'il est faux : une échelle à 5 points compressée dans les bandes NPS envoie 58 % de la base chez
-les détracteurs, dont {arb['n_ambigus']} clients à « 3 » qui, à 84 %, sont restés. Un NPS de {npsv[0]:+.0f} est à 60–75 points des
-benchmarks télécom publiés (+19 à +34 ; sources commerciales, dispersion forte). Ce n'est pas un
+ça qu'il est faux : une échelle à 5 points compressée dans les bandes NPS envoie {dist.loc['Detracteur', 'M1']:.0%} de la base chez
+les détracteurs, dont {n_amb_fmt} clients à « 3 » qui, à {part_3_restes:.0%}, sont restés. Un NPS de {npsv[0]:+.0f} est à 60–75 points des
+benchmarks télécom publiés (+19 à +34 ; voir la note de sources ci-dessous). Ce n'est pas un
 résultat, c'est un signal d'alerte sur la construction.
+
+> **D'où vient le « +19 à +34 », et ce qu'il vaut.** Trois compilations commerciales de NPS
+> télécom, consultées en septembre 2026 :
+> [CustomerGauge](https://customergauge.com/benchmarks/blog/telecommunications-nps-benchmarks-and-cx-trends),
+> [QuestionPro](https://www.questionpro.com/blog/nps-benchmarks/) et
+> [Survicate](https://survicate.com/nps-benchmarks/). **Pertinence métier** : marché américain, le
+> même que celui du dataset, et NPS relationnel — la même mesure que celle qu'on reconstruit.
+> **Réserves, qui comptent autant que le chiffre** : ce sont des sources d'éditeurs, pas de la
+> littérature relue ; leur dispersion est large (19, 31, 34, voire 54 selon l'éditeur et l'année) ;
+> et notre NPS est calculé sur une satisfaction de 1 à 5, pas sur une intention de recommandation
+> de 0 à 10 (hypothèse 1 de la phase 1). Ce repère sert donc à qualifier M1 d'**implausible**, à
+> l'ordre de grandeur près — jamais à valider un mapping ni à servir de cible.
 
 **1.2 L'arbitrage empirique des « 3 »** (méthode d'Elero et al., 2026, qui l'appliquent aux notes 7 et 8).
 Plutôt que de décider où vont les {arb['n_ambigus']} clients ambigus, on demande aux données :
 
 1. entraîner un modèle **uniquement sur les extrêmes non ambigus** — satisfaction 1–2 contre 4–5
    ({arb['n_extremes']} clients), avec les seules features légitimes ;
-2. contrôler qu'il sépare ces extrêmes : **{arb['exactitude_sur_extremes']:.1%}** d'exactitude en validation croisée — dans la
-   fourchette attendue de la littérature (0,77–0,80), donc sans fuite ;
+2. contrôler qu'il sépare ces extrêmes : **{arb['exactitude_sur_extremes']:.1%}** d'exactitude en validation croisée, contre
+   **{arb.get('taux_de_base_extremes', float('nan')):.1%}** pour la classe majoritaire. Le modèle apprend donc quelque chose
+   sans être parfait, ce qui est exactement le comportement attendu. *(Ce n'est pas une preuve
+   d'absence de fuite, et l'ancienne rédaction le laissait croire en comparant ce chiffre à des
+   exactitudes 3 classes de la littérature, qui ne sont pas comparables à un problème binaire. Le
+   test formel de fuite est en phase 4 § 5.)* ;
 3. faire passer les {arb['n_ambigus']} clients à « 3 », jamais vus, à travers ce modèle.
 
 ![]({f_arb})
 
-**Résultat : {arb['part_3_vers_detracteur']:.1%} des « 3 » ressemblent à des détracteurs, {arb['part_3_vers_promoteur']:.1%} à des promoteurs.** Le bloc rejoint les
-**{arb['destination_des_3']}s**. Le NPS qui en découle ({npsv[2]:+.1f}) tombe dans la fourchette sectorielle — corroboration externe, pas preuve.
+**Résultat : {arb['part_3_vers_detracteur']:.1%} des « 3 » ressemblent à des détracteurs**, contre {arb['part_3_vers_promoteur']:.1%} qui ressemblent aux 4–5.
+Le bloc rejoint les **{arb['destination_des_3']}s**.
 
-**1.3 Le piège évité — la circularité.** Il était tentant d'étiqueter *chaque* « 3 » par la prédiction
+**La règle de décision, et son asymétrie assumée.** La seule question posée au modèle d'arbitrage
+est : *les clients à 3 sont-ils majoritairement des détracteurs ?* Si la part dépasse
+{arb.get('seuil_bascule', 0.5):.0%}, le bloc rejoint les Détracteurs ; sinon il reste **Passif**. Promoteur n'est
+volontairement **pas** une issue possible, et il faut le dire plutôt que de le laisser deviner : une
+note de 3 sur 5 est le milieu exact de l'échelle, et rien dans le NPS ne permet de promouvoir un
+milieu d'échelle au rang de promoteur. La mesure sert donc à **écarter l'hypothèse de l'énoncé**
+(« ces clients sont des détracteurs »), pas à choisir librement parmi les trois classes ; le
+complément de {arb['part_3_vers_promoteur']:.1%} dit que ces clients ressemblent aux 4–5, pas qu'ils en sont.
+
+La décision n'est pas sur le fil : il manque {arb.get('marge_a_la_bascule', float('nan')):.1%} de part détractrice pour que le bloc
+bascule. Un test automatisé verrouille cette valeur, parce qu'un glissement silencieux de ce seul
+chiffre changerait le NPS de référence de plus de 60 points.
+
+**1.3 L'autre décision, celle du « 4 » — et d'où viennent vraiment les {npsv[2] - npsv[0]:+.0f} points.**
+L'arbitrage des « 3 » ne fait pas tout le chemin, et présenter M3 comme « arbitré par les données »
+sans plus de précision laisserait croire le contraire. Le passage de {npsv[0]:+.1f} à {npsv[2]:+.1f} se décompose en
+**deux décisions distinctes**, dont une seule est empirique :
+
+| Étape | Décision | Nature | NPS |
+|---|---|---|---|
+| Départ | grille de l'énoncé : 1–2–3 Détracteur, 4 Passif, 5 Promoteur | hypothèse de l'énoncé | **{npsv[0]:+.1f}** |
+| 1 | les {n_amb_fmt} clients à « 3 » quittent les Détracteurs pour les Passifs | **mesurée** (§ 1.2) | **{npsv[1]:+.1f}** |
+| 2 | les clients à « 4 » passent de Passif à Promoteur | **hypothèse d'échelle**, assumée ici | **{npsv[2]:+.1f}** |
+
+La décision 2 n'est pas mesurée, et voici l'argument qui la porte. Sur une échelle à 5 points, la
+note 4 correspond à « satisfait » et se projette vers 8–9 sur une échelle en 10 points, donc dans la
+bande Promoteur du NPS (9–10) ou à sa frontière immédiate (8 = Passif). Deux éléments font pencher
+vers Promoteur : **aucun** client noté 4 n'a quitté l'opérateur, exactement comme les 5 ; et Elero
+et al. (2026) traitent de la même façon la borne haute de leur échelle. Deux réserves, qui restent
+entières : une échelle à 5 points n'a pas de position pour le « 8 » qui sépare Passif de Promoteur,
+et la note 4 concerne {part4:.0%} de la base — c'est donc la décision la plus lourde de l'étude après
+celle du « 3 ». La variante prudente, qui laisse le « 4 » chez les Passifs, est **M2** ({npsv[1]:+.1f}) :
+elle est calculée, publiée et incluse dans l'étude de sensibilité (phase 5 § 5.1), précisément pour
+qu'un lecteur qui refuse cette hypothèse puisse lire le travail avec son propre mapping.
+
+**1.4 Le piège évité — la circularité.** Il était tentant d'étiqueter *chaque* « 3 » par la prédiction
 du modèle. Ce serait une faute : la cible deviendrait une fonction des features, et le modèle aval
 réapprendrait sa propre sortie — une circularité cousine de la fuite `Churn Score`. On tranche donc
 **le bloc** par la mesure agrégée, et on conserve la probabilité individuelle comme simple **indicateur
 métier** (« ce passif a un profil de détracteur à X % »), affiché dans l'application, jamais utilisé à
 l'entraînement.
 
-**1.4 Ce que l'énoncé suggérait et qu'on a refusé.** Enrichir la cible par `Churn Value` ou `CLTV`
+**1.5 Ce que l'énoncé suggérait et qu'on a refusé.** Enrichir la cible par `Churn Value` ou `CLTV`
 transformerait le projet en modèle de churn déguisé (phase 2 § 4). Enrichir par l'ancienneté rendrait
-la cible fonction d'une feature (même circularité qu'en 1.3). Le **bruit réaliste** suggéré par
-l'énoncé est traité en phase 5 § 5 comme test de robustesse : on corrompt les étiquettes
-d'entraînement et on mesure la dégradation.
+la cible fonction d'une feature (même circularité qu'en 1.4). Le **bruit réaliste** suggéré par
+l'énoncé est traité en phase 5 § 5.2 comme test de robustesse. Ce bruit est **ordinal**, et ce choix
+est le point de la section : dans une vraie enquête, un promoteur mal mesuré devient passif bien plus
+souvent que détracteur, et ce sont les notes du milieu qui sont les plus fragiles. On bascule donc
+vers une classe adjacente dans 80 % des cas et vers la classe opposée dans 20 %, avec une exposition
+trois fois plus forte pour les clients notés 3. Un bruit uniforme — toutes les erreurs équiprobables,
+y compris promoteur → détracteur — est le moins réaliste possible sur une cible ordonnée ; il est
+conservé en second, comme borne pessimiste.
+
+**1.6 Limites du label construit.** L'énoncé demande explicitement de discuter les limites de la
+cible qu'on fabrique (§ 4.5). Trois, par ordre de gravité.
+
+1. **La satisfaction n'est pas une intention de recommander.** Le NPS mesure la propension à
+   recommander à un tiers, la satisfaction une expérience vécue. Les deux corrèlent, ils ne
+   s'identifient pas. C'est l'hypothèse 1 de la phase 1, et elle est indépassable avec ce dataset.
+2. **La note a probablement été rendue cohérente avec le churn par le producteur du dataset.** Le
+   fait fondateur — 100 % de départs chez les 1–2, 0 % chez les 4–5 — ne s'observe dans aucune
+   enquête réelle. L'interprétation retenue ailleurs dans l'étude (« le churn est une conséquence de
+   l'insatisfaction ») n'est pas la seule compatible : l'hypothèse inverse, une note dérivée du
+   statut de churn, l'est tout autant et nous ne pouvons pas les départager. Conséquence à assumer :
+   notre modèle NPS et un modèle de churn partagent largement leurs drivers, et les performances
+   mesurées ici sont une **borne haute**. Sur de vraies réponses, plus bruitées, il faut s'attendre à
+   une dégradation de l'ordre de celle que mesure le test de bruit d'étiquettes (phase 5 § 5.2).
+3. **Seule la note 3 apporte une information non réductible au churn.** Parmi les {arb['n_ambigus']} clients à « 3 »,
+   {restes3_3} sont restés et les autres sont partis : c'est le seul endroit du jeu où la note et le statut
+   de départ ne se déduisent pas l'un de l'autre. C'est aussi pourquoi l'arbitrage de ce bloc a reçu
+   autant d'attention, et pourquoi la classe Passif est la plus difficile à prédire (phase 5 § 2).
 
 ## 2. Nettoyage
 
@@ -631,6 +820,14 @@ de fuite entraînement → test. Le découpage répondants / silencieux est déc
 # =============================================================================
 def phase4(cfg, df, cibles, X, satisfaction, num, cat, R):
     cible = cfg["colonnes"]["cible"]; seed = cfg["seed"]
+    # Ordre de simplicite publie : sans lui, la regle de parcimonie designe un gagnant sans que
+    # le lecteur puisse verifier le critere qui l'a designe.
+    _simpl = pd.DataFrame(
+        [{"Rang": r, "Modeles": ", ".join(_libmod(m) for m, v in sorted(SIMPLICITE.items()) if v == r),
+          "Ce qui justifie ce rang": JUSTIFICATION_SIMPLICITE[r]}
+         for r in sorted(set(SIMPLICITE.values()))])
+    _simpl.columns = ["Rang", "Modeles", "Ce qui justifie ce rang"]
+    tab_simplicite = _tab(_simpl)
     fig, axes = plt.subplots(1, 3, figsize=(11, 3), sharey=True)
     for ax, sc in zip(axes, cfg["protocole"]["scenarios"]):
         dec = decouper(df, cfg, sc, seed)
@@ -714,40 +911,98 @@ def phase4(cfg, df, cibles, X, satisfaction, num, cat, R):
     fo = _charger_json("fondation")
     fond_txt = "*Évaluation non exécutée (`python -m src.fondation_eval`).*"
     if fo:
-        rows = []
-        for mm in fo["modeles"]:
-            if mm["statut"] == "ok":
-                rows.append({"Modèle": mm["nom"], "Version": mm.get("version", ""), "Kappa": mm["metriques"]["kappa"], "Macro-F1": mm["metriques"]["macro_f1"],
-                             "Rappel Dét.": mm["metriques"]["rappel_detracteur"], "Rappel Passif": mm["metriques"]["rappel_passif"],
-                             "Ajustement (s)": mm["duree_fit_s"], "Inférence (s)": mm["duree_inference_s"], "ms / client": mm["latence_par_client_ms"], "Statut": "évalué"})
-            else:
-                rows.append({"Modèle": mm["nom"], "Version": mm.get("version", ""), "Statut": f"indisponible — {mm['erreur'][:90]}…"})
         ref = fo["reference"]; rb = fo.get("reference_boosting", {})
-        rows.append({"Modèle": f"{_libmod(ref['modele'])} (retenu)", "Kappa": ref["kappa"], "Macro-F1": ref["macro_f1"], "Rappel Dét.": ref["rappel_detracteur"],
-                     "Inférence (s)": ref["duree_inference_s"], "Statut": "référence"})
+        rows, notes = [], []
+        for mm in fo["modeles"]:
+            base = {"Modèle": mm["nom"], "Version du paquet": mm.get("version_paquet", mm.get("version", "—"))}
+            if mm["statut"] == "ok":
+                base.update({"Kappa": mm["metriques"]["kappa"], "Macro-F1": mm["metriques"]["macro_f1"],
+                             "Rappel Dét.": mm["metriques"]["rappel_detracteur"], "Rappel Passif": mm["metriques"]["rappel_passif"],
+                             "Ajustement (s)": mm["duree_fit_s"], "Inférence (s)": mm["duree_inference_s"],
+                             "ms / client": mm["latence_par_client_ms"], "Statut": "évalué"})
+            else:
+                base["Statut"] = "indisponible — " + mm.get("cause", mm.get("erreur", ""))[:70]
+                notes.append(mm)
+            rows.append(base)
+        rows.append({"Modèle": f"{_libmod(ref['modele'])} — modèle retenu", "Kappa": ref["kappa"], "Macro-F1": ref["macro_f1"],
+                     "Rappel Dét.": ref["rappel_detracteur"], "Inférence (s)": ref["duree_inference_s"],
+                     "ms / client": ref.get("latence_par_client_ms"), "Statut": "référence"})
         if rb:
-            rows.append({"Modèle": f"{_libmod(rb['modele'])} (meilleur boosting)", "Kappa": rb["kappa"], "Macro-F1": rb["macro_f1"], "Statut": "référence"})
+            rows.append({"Modèle": f"{_libmod(rb['modele'])} — meilleur gradient boosting", "Kappa": rb["kappa"], "Macro-F1": rb["macro_f1"],
+                         "Ajustement (s)": rb.get("duree_fit_s"), "Inférence (s)": rb.get("duree_inference_s"),
+                         "ms / client": rb.get("latence_par_client_ms"), "Statut": "référence"})
         fdf = pd.DataFrame(rows)
-        verdicts = []
-        for mm in [x for x in fo["modeles"] if x["statut"] == "ok"]:
-            gagne = mm["metriques"]["kappa"] > ref["kappa"] + 0.005
-            verdicts.append(f"**{mm['nom']}** {'bat' if gagne else 'ne bat pas'} le modèle retenu (kappa {mm['metriques']['kappa']:.3f} contre {ref['kappa']:.3f}), "
-                            f"pour une inférence {mm['duree_inference_s']/max(ref['duree_inference_s'],1e-3):.0f}× plus lente ({mm['latence_par_client_ms']:.1f} ms par client, CPU) et sans explication native.")
-        indisp = [x for x in fo["modeles"] if x["statut"] != "ok"]
+
+        ok = [x for x in fo["modeles"] if x["statut"] == "ok"]
+        lignes = []
+        for mm in ok:
+            met = mm["metriques"]
+            gagne = met["kappa"] > ref["kappa"] + 0.005
+            txt = (f"**{mm['nom']}** {'dépasse' if gagne else 'ne dépasse pas'} le modèle retenu en kappa "
+                   f"({met['kappa']:.3f} contre {ref['kappa']:.3f}), mais son macro-F1 est de {met['macro_f1']:.3f} contre "
+                   f"{ref['macro_f1']:.3f} et son rappel Passif de **{met['rappel_passif']:.3f}**. "
+                   f"Inférence : {mm['latence_par_client_ms']:.1f} ms par client, soit "
+                   f"{mm['duree_inference_s']/max(ref['duree_inference_s'], 1e-3):.0f}× le modèle retenu")
+            if rb.get("duree_inference_s"):
+                txt += f" et {mm['duree_inference_s']/max(rb['duree_inference_s'], 1e-3):.0f}× {_libmod(rb['modele'])}"
+            lignes.append(txt + ".")
+        # Le compromis que l'énoncé demande explicitement : fondation VS gradient boosting.
+        if ok and rb:
+            meilleur = max(ok, key=lambda m: m["metriques"]["kappa"])
+            lignes.append(
+                f"**Le compromis demandé, chiffré.** Face à {_libmod(rb['modele'])}, le meilleur gradient boosting du "
+                f"catalogue : kappa {meilleur['metriques']['kappa']:.3f} contre {rb['kappa']:.3f}, macro-F1 "
+                f"{meilleur['metriques']['macro_f1']:.3f} contre {rb['macro_f1']:.3f}"
+                + (f", ajustement {meilleur['duree_fit_s']:.1f} s contre {rb['duree_fit_s']:.1f} s, inférence "
+                   f"{meilleur['duree_inference_s']:.1f} s contre {rb['duree_inference_s']:.2f} s sur les mêmes "
+                   f"{fo['n_evaluation']} clients." if rb.get("duree_fit_s") else ".")
+                + " Le modèle de fondation peut gagner un peu de kappa et perdre nettement en macro-F1, "
+                  "pour un coût d'inférence sans commune mesure.")
+
+        note_indisp = ""
+        if notes:
+            note_indisp = "\n".join(
+                f"> **{x['nom']} n'a pas pu être évalué.** Cause : {x.get('cause', '—')} "
+                f"Ce qu'il faudrait faire : {x.get('action', '—')} "
+                f"Trace brute : `{x.get('erreur_brute', x.get('erreur', ''))[:200]}`" for x in notes)
+
+        rp = [m["metriques"]["rappel_passif"] for m in ok]
+        passif_ecrase = bool(rp) and min(rp) < 0.05
         fond_txt = f"""
 {_tab(fdf, {'Kappa':'{:.3f}','Macro-F1':'{:.3f}','Rappel Dét.':'{:.3f}','Rappel Passif':'{:.3f}','Ajustement (s)':'{:.1f}','Inférence (s)':'{:.2f}','ms / client':'{:.2f}'})}
 
-{chr(10).join('- ' + v for v in verdicts)}
-{('- ' + ' ; '.join(f"**{x['nom']}** n'a pas pu être évalué : `{x['erreur'][:160]}`" for x in indisp)) if indisp else ''}
+{chr(10).join('- ' + v for v in lignes)}
 
-**Avantages** : aucun réglage, aucun entraînement au sens classique (apprentissage en contexte),
-performance d'emblée au niveau des meilleurs modèles réglés sur un petit jeu comme celui-ci.
-**Limites** : latence d'inférence de deux à trois ordres de grandeur supérieure (le jeu d'entraînement
-est rejoué à chaque prédiction), empreinte mémoire, pas de coefficients ni de SHAP natif (explication
-par permutation, coûteuse), dépendance à des poids externes (TabPFN-2.5 : dépôt à accès contrôlé),
-domaine de validité borné (~50 000 lignes, ~2 000 features pour TabPFN-2.5). **Compromis** : pour un
-scoring mensuel de 7 000 clients, la latence est acceptable ; pour l'application interactive et pour
-l'explication client par client, le modèle retenu reste préférable.
+{note_indisp}
+
+**Avantages.** Aucun réglage d'hyperparamètres, aucun entraînement au sens classique — l'apprentissage
+se fait en contexte, au moment de la prédiction. Sur un jeu de cette taille, cela donne en quelques
+secondes un kappa du même ordre que quinze modèles réglés, ce qui en fait un excellent **étalon de
+première heure** : si un modèle de fondation sans réglage atteint votre score, votre pipeline n'a pas
+encore trouvé de signal que lui n'a pas.
+
+**Limites, et la principale n'est pas la latence.**
+{'- **La classe Passif est abandonnée** (rappel ' + f"{min(rp):.3f}" + ') : le modèle se comporte en classifieur binaire Détracteur / Promoteur. Le kappa quadratique le pénalise peu — une erreur d une classe coûte quatre fois moins qu une erreur de deux — ce qui est exactement pourquoi un bon kappa ne suffit pas à valider un modèle sur cette cible.' if passif_ecrase else '- Le profil par classe est à surveiller : le kappa quadratique pénalise peu l abandon de la classe médiane.'}
+- **La comparaison n'est pas à protocole égal, et c'est en défaveur du modèle de fondation.** Les
+  quinze modèles du catalogue reçoivent une pondération de classes `balanced` (phase 3 § 4) ; ni
+  TabICL ni TabPFN n'exposent ce réglage. La classe minoritaire est donc désavantagée chez eux par
+  construction, et une part de l'écart de macro-F1 vient de là, pas du modèle.
+- **Latence d'inférence de plusieurs ordres de grandeur supérieure** : le jeu d'entraînement est
+  rejoué à chaque prédiction.
+- **Aucune explication native** : ni coefficients, ni SHAP d'arbre. Il faudrait passer par une
+  explication par permutation, coûteuse — alors que les drivers et l'affichage client sont au cœur du
+  livrable (phase 5 § 6).
+- **Dépendance à des poids externes** et à leurs conditions d'accès : voir la note ci-dessus.
+- **Domaine de validité borné** : environ 50 000 lignes et 2 000 features pour TabPFN-2.5. Nos
+  {fo['n_evaluation']} clients et {fo['n_features']} features sont largement dedans — ce n'est donc pas un cas limite, et cette
+  limite ne joue pas ici.
+- *L'empreinte mémoire n'a pas été mesurée et n'est donc pas avancée comme argument.*
+
+**Compromis.** Pour un scoring mensuel de 7 000 clients, la latence reste acceptable. Pour
+l'application interactive, pour l'explication client par client et pour tenir la classe Passif, le
+modèle retenu reste préférable — et c'est la conclusion, même si elle est moins spectaculaire.
+
+> **Sur le nom de version.** {fo.get('note_nom_tabpfn', '')}
 """
 
     tx = _charger_json("texte")
@@ -759,13 +1014,11 @@ l'explication client par client, le modèle retenu reste préférable.
                             "Macro-F1": [tx["tabulaire_seul"]["macro_f1"], tx["texte_seul"]["macro_f1"], tx["fusion_tardive"]["macro_f1"], tx["fusion_precoce_svd20"]["macro_f1"]],
                             "Rappel Détracteur": [tx["tabulaire_seul"]["rappel_detracteur"], tx["texte_seul"]["rappel_detracteur"], tx["fusion_tardive"]["rappel_detracteur"], tx["fusion_precoce_svd20"]["rappel_detracteur"]]})
         texte_txt = f"""
-**Génération.** {tx['n_verbatims']} notes de dernier contact, une par client, source `{tx['source_verbatims']}`. Sans clé API
-dans l'environnement, le générateur local à gabarits stochastiques a été utilisé : fragments rédigés par
-un LLM (Claude), assemblage seedé (seed {cfg['seed']}) — donc strictement reproductible. Le chemin API est prêt
-(`src/verbatims.py` : détection de `ANTHROPIC_API_KEY`, appels par lots à `claude-opus-5` avec reprise, prompt
-versionné `prompts/verbatim_v1.txt`, même schéma de sortie ; la colonne `source` dit lequel des deux a
-produit chaque ligne). Conditionnement : tonalité tirée de la classe M3 avec **25 % de bruit** et cas
-contre-intuitifs, ancrage sur contrat, ancienneté, internet, offre, parrainages, facture. Concordance
+**Génération.** {tx['n_verbatims']} notes de dernier contact, une par client. Sources : `{tx['source_verbatims']}`.
+{('Chaque note a été produite par un **LLM local** (' + str(tx.get('modele_llm')) + ', transformers, CPU — l’énoncé autorise explicitement « local LLMs »), graine torch fixée, prompt versionné `prompts/verbatim_local_v1.txt`, génération par lots avec reprise, contrôle de chaque sortie (langue, longueur, mots interdits) avec repli tracé vers le générateur à gabarits pour les sorties rejetées.') if tx.get('modele_llm') and 'llm_local' in tx['source_verbatims'] else ('Chaque note a été produite par l’API Anthropic (' + str(tx.get('modele_llm')) + '), prompt versionné `prompts/verbatim_v1.txt`.') if tx.get('modele_llm') else 'Sans clé API ni LLM local disponible, le générateur à gabarits stochastiques a été utilisé : fragments rédigés par un LLM (Claude), assemblage seedé — strictement reproductible.'}
+Le chemin API Anthropic reste prêt (`src/verbatims.py` : détection de `ANTHROPIC_API_KEY`, appels par lots à `claude-opus-5` avec reprise,
+prompt `prompts/verbatim_v1.txt`, même schéma). Conditionnement : tonalité tirée de la classe M3 avec **25 % de bruit** et cas
+contre-intuitifs, ancrage sur contrat, ancienneté, internet, offre, parrainages, facture, support premium, streaming. Concordance
 tonalité / classe observée : **{tx['concordance_tonalite_classe']:.1%}** (plafond théorique {tx['plafond_theorique']:.1%}).
 
 **Représentation et fusion.** TF-IDF (1-2 grammes) + logistique pour le texte seul ; fusion tardive
@@ -807,11 +1060,26 @@ Résultat par formulation (meilleur modèle de chaque, S3/M3) :
 
 {_tab(formu, {'Kappa CV IPW':'{:.3f}','Kappa silencieux':'{:.3f}','Macro-F1 silencieux':'{:.3f}'})}
 
-Lecture : les trois formulations arrivent à des kappas voisins ; celles qui **exploitent l'ordre**
-(ordinale, régression à seuils) sont construites pour la métrique qui respecte l'ordre et en tirent un
-léger avantage, avec un **profil par classe** propre à chacune (rappels Détracteur et Passif dans le
-tableau de sélection, § 6.2). Le choix final se fait sur la mesure (§ 6), et l'évaluation métier
-(phase 5 § 3) vérifie que le classement des appels n'en souffre pas.
+Lecture, en deux temps, parce que les deux colonnes ne disent pas la même chose.
+
+**En validation croisée sur les répondants, les trois formulations sont indiscernables.** Les kappas
+tiennent dans un mouchoir et l'écart-type entre plis est du même ordre que l'écart entre
+formulations : il n'y a rien à conclure de ce tableau seul, et prétendre le contraire serait lire du
+bruit.
+
+**Sur les silencieux, celles qui exploitent l'ordre prennent un avantage — et il est surtout dans le
+profil par classe, pas dans le kappa.** Le gain de kappa est faible ; le vrai écart est le rappel de
+la classe **Passif**, que les formulations ordinales tiennent et que les meilleures formulations
+nominales écrasent. C'est cohérent : le kappa quadratique pénalise peu une erreur d'un cran, donc un
+modèle qui abandonne le milieu de l'échelle peut afficher un bon kappa tout en étant inutilisable pour
+qui veut distinguer un passif d'un détracteur.
+
+⚠️ **La comparaison est asymétrique et il faut le savoir en la lisant** : la colonne « nominale »
+retient le meilleur de douze modèles, la colonne « ordinale » n'en a qu'un seul (mord `LogisticAT`) et
+la régression à seuils deux. Comparer le meilleur de douze à un unique candidat avantage
+mécaniquement le premier — c'est donc une borne **basse** de ce que l'ordre apporte. Le choix final se
+fait sur la mesure (§ 6), et l'évaluation métier (phase 5 § 3) vérifie que le classement des appels
+n'en souffre pas.
 
 ## 2. Protocole de validation 15 % / 85 %
 
@@ -872,9 +1140,21 @@ préparation adaptée à chaque famille (phase 3 § 5). **Écartés avec argumen
 
 {_tab(tab_sc, {'S1_MCAR':'{:.3f}','S2_MAR':'{:.3f}','S3_MNAR':'{:.3f}','Chute S1→S3':'{:+.3f}'})}
 
-Deux lectures. **M3 domine M1 et M2 pour toutes les familles** : la cible arbitrée par les données est
-aussi la plus apprenable. **La performance chute de S1 à S3** pour presque tous les modèles : c'est le
-coût mesuré du biais de non-réponse — le résultat scientifique du protocole.
+Deux lectures, dont une seule est un résultat.
+
+**La chute de S1 à S3 est le résultat scientifique du protocole.** Presque tous les modèles perdent en
+passant d'une non-réponse aléatoire à une non-réponse qui dépend de la satisfaction : c'est le coût
+mesuré du biais de réponse, et il est comparable d'une colonne à l'autre puisque la cible ne change
+pas.
+
+**En revanche, le kappa plus élevé de M3 ne prouve pas que M3 est « la meilleure cible ».** Les
+kappas ne sont **pas comparables entre mappings** : déplacer le milieu ambigu change la difficulté de
+la tâche elle-même, ainsi que la prévalence des classes. Un mapping qui rendrait la cible triviale
+obtiendrait le meilleur kappa sans rien démontrer. Ce tableau se lit donc **colonne par colonne**
+(quel modèle pour un mapping donné), jamais ligne par ligne pour départager les mappings. Ce qui
+justifie M3 est ailleurs : l'arbitrage empirique du bloc des « 3 » (phase 3 § 1.2), l'hypothèse
+d'échelle explicite sur le « 4 » (phase 3 § 1.3), et la **stabilité du sens des effets** d'un mapping
+à l'autre (phase 5 § 5.1).
 
 ## 5. Porte de contrôle : y a-t-il une fuite ?
 
@@ -901,8 +1181,24 @@ surajuster la recherche dépasse vite le gain. La version réglée n'est retenue
 1. Critère : kappa quadratique en validation croisée sur les répondants, **pondéré IPW** (estimation
    de la performance sur la population), départage par macro-F1 CV.
 2. **Parcimonie** (« one standard error rule », Hastie, Tibshirani & Friedman, ESL § 7.10) : parmi
-   les modèles à moins d'un écart-type (entre plis) du meilleur, le plus simple l'emporte, selon un
-   ordre de simplicité fixé a priori (nombre de paramètres, lisibilité de l'explication).
+   les modèles à moins d'un écart-type (entre plis) du meilleur, le plus simple l'emporte. L'ordre de
+   simplicité est fixé **a priori**, publié ci-dessous, et repose sur trois critères pris dans cet
+   ordre : (a) le nombre de paramètres libres ajustés sur les données ; (b) le modèle produit-il
+   nativement des **probabilités de classe** — la liste d'appels et l'application en dépendent
+   entièrement ; (c) l'explication est-elle exacte et lisible (coefficients) ou approchée et coûteuse
+   (SHAP, permutation).
+
+{tab_simplicite}
+
+   Ce tableau tranche le cas le plus disputé de la sélection. La logistique ordinale et la régression
+   ridge à seuils ont la **même paramétrisation** — un vecteur de coefficients et deux seuils — et
+   pourtant elles ne sont pas au même rang. Deux raisons, et la seconde est décisive : les seuils de
+   la régression sont **optimisés a posteriori** sur le kappa, ce qui est une étape d'ajustement de
+   plus ; et surtout, la régression à seuils **n'a pas de probabilités de classe natives** — les
+   siennes sont approchées par la distance aux seuils. Or toute la couche de décision de ce projet
+   (classement des appels par P(Détracteur), calibration, seuils d'équité, affichage client) repose
+   sur ces probabilités. Ce n'est donc pas une préférence esthétique pour un modèle linéaire, c'est
+   une contrainte d'usage.
 3. Les 85 % silencieux sont le **test final** : rapportés pour tous, utilisés pour aucun choix.
 
 ![]({f_cvsil})
@@ -1014,6 +1310,31 @@ def phase5(cfg, df, cibles, X, dec, art, R, num, cat, satisfaction):
     parts = pd.DataFrame({"Prédit (silencieux)": ns["part_classes_silencieux_predit"], "Vrai (silencieux)": ns["part_classes_silencieux_vrai"]}).reindex(ORDRE).reset_index().rename(columns={"index": "Classe"})
     parts["Classe"] = parts["Classe"].map(LIB)
     lecture_nps = lecture_composition(ns)
+    q = ns.get("quantification", {})
+    quant_txt = ""
+    if q:
+        rows = []
+        libq = {"CC": "Classify & Count — parts des classes prédites (estimateur retenu, affiché)", "PCC": "Probabilistic CC — moyenne des probabilités",
+                "ACC": "Adjusted CC — inversion de la matrice de confusion (CV répondants)", "PACC": "Probabilistic ACC — idem avec les probabilités moyennes"}
+        for k in ("CC", "PCC", "ACC", "PACC", "verite"):
+            v = q[k]; ic = v.get("ic95")
+            rows.append({"Estimateur": "**Vérité** (connue ici)" if k == "verite" else f"{k} — {libq[k]}",
+                         "Détracteurs": f"{v['parts']['Detracteur']:.1%}", "Passifs": f"{v['parts']['Passif']:.1%}", "Promoteurs": f"{v['parts']['Promoteur']:.1%}",
+                         "NPS": f"{v['nps']:+.1f}" + (f" [{ic[0]:+.0f} ; {ic[1]:+.0f}]" if ic else ""), "Écart à la vérité": "—" if k == "verite" else f"{v['nps'] - q['verite']['nps']:+.1f}"})
+        meilleur = min((k for k in ("CC", "PCC", "ACC", "PACC")), key=lambda k: abs(q[k]["nps"] - q["verite"]["nps"]))
+        quant_txt = f"""
+**Peut-on corriger l'estimateur ?** Estimer la composition d'une population à partir d'un classifieur est un problème connu
+— la *quantification* (Forman 2005 ; González et al. 2017). Quatre estimateurs ont été testés, avec la matrice de confusion
+que le praticien peut estimer — par validation croisée sur les répondants :
+
+{_tab(pd.DataFrame(rows))}
+
+Le plus proche est {meilleur} ({q[meilleur]['nps'] - q['verite']['nps']:+.1f} pts) ; **aucun ne retrouve la vérité**. La raison est structurelle : les
+corrections ACC et PACC supposent que la matrice de confusion P(prédit | vrai) est la même chez les répondants et chez les
+silencieux (décalage d'a priori pur). Sous MNAR, ce n'est pas le cas — dans une même classe, les répondants sont plus
+« extrêmes » que les silencieux, donc mieux classés. Une correction statistique à partir des seuls répondants ne peut pas
+compenser ce biais : c'est l'argument le plus précis en faveur de vraies réponses tirées de la population cible (phase 6 § 4).
+"""
 
     br = pd.DataFrame([b for b in R["bruit_etiquettes"] if "kappa" in b]); ab = pd.DataFrame([a for a in R["ablation_features"] if "kappa" in a])
     fig, axes = plt.subplots(1, 2, figsize=(11, 3.4))
@@ -1024,8 +1345,37 @@ def phase5(cfg, df, cibles, X, dec, art, R, num, cat, satisfaction):
     axes[1].set_yticks(yy); axes[1].set_yticklabels(ab["configuration"], fontsize=7); axes[1].invert_yaxis(); axes[1].axvline(0, color="k", lw=0.6)
     axes[1].set_xlabel("écart de kappa par rapport à la configuration retenue"); axes[1].set_title("Ablation de features")
     f_rob = _fig("05_robustesse.png")
-    brt = br[["taux_bruit", "kappa", "macro_f1", "rappel_detracteur", "rappel_passif", "rappel_promoteur"]].copy(); brt["taux_bruit"] = brt["taux_bruit"].map(lambda v: f"{v:.0%}")
-    brt.columns = ["Bruit", "Kappa", "Macro-F1", "Rappel Dét.", "Rappel Passif", "Rappel Prom."]
+    _cols_br = ["taux_bruit"] + (["genre"] if "genre" in br.columns else []) + \
+               (["etiquettes_modifiees"] if "etiquettes_modifiees" in br.columns else []) + \
+               ["kappa", "macro_f1", "rappel_detracteur", "rappel_passif", "rappel_promoteur"]
+    brt = br[_cols_br].copy(); brt["taux_bruit"] = brt["taux_bruit"].map(lambda v: f"{v:.0%}")
+    brt.columns = (["Bruit"] + (["Forme"] if "genre" in br.columns else []) +
+                   (["Étiquettes modifiées"] if "etiquettes_modifiees" in br.columns else []) +
+                   ["Kappa", "Macro-F1", "Rappel Dét.", "Rappel Passif", "Rappel Prom."])
+
+    # Lecture du bruit : on compare les DEUX formes au même taux maximal, parce que l'écart entre
+    # elles est justement ce que le test doit montrer.
+    def _kappa_bruit(taux, genre=None):
+        m_ = br[br["taux_bruit"] == taux]
+        if genre and "genre" in br.columns:
+            m_ = m_[m_["genre"] == genre]
+        return float(m_["kappa"].iloc[0]) if len(m_) else float("nan")
+
+    _tmax = float(br["taux_bruit"].max()); _k0 = _kappa_bruit(0.0)
+    _kord, _kuni = _kappa_bruit(_tmax, "ordinal"), _kappa_bruit(_tmax, "uniforme")
+    if np.isnan(_kord):
+        lecture_bruit = (f"Le kappa perd {_k0 - float(br['kappa'].iloc[-1]):.3f} entre 0 et {_tmax:.0%} de bruit.")
+    else:
+        lecture_bruit = (
+            f"À {_tmax:.0%} d'étiquettes corrompues, le kappa passe de {_k0:.3f} à **{_kord:.3f}** sous bruit ordinal "
+            f"(−{_k0 - _kord:.3f}) et à {_kuni:.3f} sous bruit uniforme (−{_k0 - _kuni:.3f}). "
+            + ("La dégradation est graduelle : le modèle ne s'effondre pas quand la cible est bruitée, ce qui importe "
+               "d'autant plus que le label construit ici est probablement plus propre qu'une vraie enquête (phase 3 § 1.6)."
+               if (_k0 - _kord) < 0.12 else
+               "La dégradation est marquée : la qualité de la cible est un déterminant de premier ordre, à surveiller "
+               "dès les premières vraies réponses.")
+            + f" L'écart entre les deux formes ({abs(_kuni - _kord):.3f}) mesure ce que coûterait un bruit non ordinal — "
+              "un scénario improbable, gardé comme borne basse.")
     abt = ab[["configuration", "n_variables", "kappa", "macro_f1", "rappel_detracteur", "rappel_passif", "auc_detracteur"]].copy(); abt["Δ kappa"] = abt["kappa"] - base_k
     abt.columns = ["Configuration", "Variables", "Kappa", "Macro-F1", "Rappel Dét.", "Rappel Passif", "AUC Dét.", "Δ kappa"]
 
@@ -1036,29 +1386,156 @@ def phase5(cfg, df, cibles, X, dec, art, R, num, cat, satisfaction):
         v = float(s.iloc[0])
         return "0.000" if abs(v) < 5e-4 else f"{v:+.3f}"
 
-    coefs = {}
-    for mp in ("M1", "M2", "M3"):
-        mm = construire_modeles(num, cat, seed, ["logistique"])["logistique"]; ym = cibles[mp].astype(str).values
-        entrainer(mm, X[rep], ym[rep]); mdl = mm.named_steps["modele"]
-        coefs[mp] = pd.Series(mdl.coef_[list(mdl.classes_).index("Detracteur")], index=noms_apres_encodage(mm.named_steps["preparation"]))
-    top = coefs["M3"].abs().sort_values(ascending=False).head(12).index
-    sens = pd.DataFrame({mp: coefs[mp].reindex(top) for mp in coefs})
-    fig, ax = plt.subplots(figsize=(8, 4)); sens.plot(kind="barh", ax=ax, color=[ROUGE, ORANGE, BLEU]); ax.axvline(0, color="k", lw=0.6)
-    ax.set_xlabel("coefficient logistique — classe Détracteur (features standardisées)"); ax.set_title("Les mêmes drivers sous les trois mappings ?"); ax.invert_yaxis()
-    f_sens = _fig("05_sensibilite_mapping.png")
-    stables = int((sens.apply(np.sign).nunique(axis=1) == 1).sum())
+    # Sensibilité au mapping : calculée par le pipeline sur le modèle RETENU (et non recalculée
+    # ici sur un autre modèle, comme le faisait la version précédente — le chiffre publié n'était
+    # alors pas celui du modèle dont on parlait, et n'était stocké nulle part).
+    sm = R.get("sensibilite_mapping", {})
+    sens = pd.DataFrame(sm.get("coefficients", {})).T.reindex(columns=["M1", "M2", "M3"]) if sm.get("coefficients") else pd.DataFrame()
+    if len(sens):
+        fig, ax = plt.subplots(figsize=(8, 4)); sens.plot(kind="barh", ax=ax, color=[ROUGE, ORANGE, BLEU]); ax.axvline(0, color="k", lw=0.6)
+        ax.set_xlabel("contribution moyenne signée à P(Détracteur) — modèle retenu, features standardisées")
+        ax.set_title("Les mêmes drivers sous les trois mappings ?"); ax.invert_yaxis()
+        f_sens = _fig("05_sensibilite_mapping.png")
+    else:
+        f_sens = ""
+    stables = sm.get("n_stables", 0); instables = sm.get("variables_instables", [])
+    n_exam = sm.get("n_variables_examinees", len(sens))
+    if not len(sens):
+        sens_txt = "*(Calcul indisponible — relancer `python -m src.run`.)*"
+        tab_sens_coef = ""
+    else:
+        sens_txt = (f"Sur les **{n_exam} variables les plus influentes**, **{stables} conservent le même sens d'effet** sous les "
+                    f"trois mappings. " +
+                    ("Aucune ne change de signe : la lecture métier — engagement, ancienneté, parrainage, prix — ne dépend pas "
+                     "du mapping choisi. C'est l'amplitude qui varie, pas la direction, et c'est la seule stabilité qu'on "
+                     "pouvait espérer démontrer ici."
+                     if not instables else
+                     "Les variables qui changent de sens sont : **" + ", ".join(instables) + "**. " +
+                     ("Elles font partie des leviers recommandés : leur instabilité doit être connue de l'équipe rétention "
+                      "avant toute campagne fondée sur elles."
+                      if any(v in ("Contract", "Facture mensuelle", "Ancienneté", "Parrainage") for v in instables)
+                      else "Aucune ne figure parmi les leviers recommandés, ce qui limite la portée pratique de cette instabilité.")))
+        tab_sens_coef = _tab(sens.reset_index().rename(columns={"index": "Variable"}),
+                             {"M1": "{:+.3f}", "M2": "{:+.3f}", "M3": "{:+.3f}"})
+    em = sm.get("effet_metier", {})
+    if em:
+        tab_sens_metier = _tab(pd.DataFrame([
+            {"Mapping": mp, "Taux de détracteurs réel": v["taux_de_base"], "Détracteurs prédits": v["part_detracteurs_predits"],
+             f"Précision@{cfg['metier']['k_appels']}": v["precision_at_k"], "Lift": v["lift"]} for mp, v in em.items()]),
+            {"Taux de détracteurs réel": "{:.1%}", "Détracteurs prédits": "{:.1%}",
+             f"Précision@{cfg['metier']['k_appels']}": "{:.1%}", "Lift": "×{:.2f}"})
+        _m1, _m3 = em.get("M1", {}), em.get("M3", {})
+        lecture_sens_metier = (
+            f"Le mapping ne change pas seulement un score : il change la **taille du problème**. Sous M1, "
+            f"{_m1.get('taux_de_base', 0):.0%} de la base est détractrice contre {_m3.get('taux_de_base', 0):.0%} sous M3. "
+            f"La précision@{cfg['metier']['k_appels']} paraît donc bien plus élevée sous M1 ({_m1.get('precision_at_k', 0):.0%}) "
+            f"que sous M3 ({_m3.get('precision_at_k', 0):.0%}) — mais c'est un mirage : le **lift**, qui rapporte la précision au "
+            f"taux de base, dit l'inverse (×{_m1.get('lift', 0):.2f} contre ×{_m3.get('lift', 0):.2f}). Sous M1, viser les "
+            "détracteurs n'apporte presque rien puisqu'ils sont déjà majoritaires ; c'est une raison métier "
+            "supplémentaire de ne pas retenir ce mapping, indépendante de toute considération de score.")
+    else:
+        tab_sens_metier = ""; lecture_sens_metier = ""
     g = pd.DataFrame([x for x in R["grille"] if "kappa_quadratique" in x and x["scenario"] == "S3_MNAR" and x["modele"] == mf["modele"]])
     kmap = g.set_index("mapping")["kappa_quadratique"].reindex(["M1", "M2", "M3"])
 
     dr = R["drivers"]
-    imp = pd.Series(dr["importance_detracteur"]); direction = dr.get("direction", {})
+    imp = pd.Series(dr["importance_detracteur"])
+    moy = dr.get("contribution_moyenne", {})
     fig, ax = plt.subplots(figsize=(8, 4.4))
     top15 = imp.head(15)
-    cols_ = [ROUGE if direction.get(v, 1) > 0 else VERT for v in top15.index]
+    cols_ = [ROUGE if moy.get(v, 1) > 0 else VERT for v in top15.index]
     ax.barh(top15.index[::-1], top15.values[::-1], color=cols_[::-1]); ax.set_xlabel(f"importance moyenne |contribution| — {dr['methode']}")
-    ax.set_title("Les 15 variables qui pèsent le plus sur la détraction (rouge : une valeur élevée augmente le risque · vert : le diminue)", fontsize=8)
+    ax.set_title("Les 15 variables qui pèsent le plus sur la détraction (rouge : pousse vers la détraction · vert : protège)", fontsize=8)
     f_imp = _fig("05_interpretabilite.png")
-    impt = pd.DataFrame({"Variable": imp.index, "Importance": imp.values, "Sens (corrélation valeur ↔ contribution)": [direction.get(v, np.nan) for v in imp.index]})
+    # --- Association brute observée, variable par variable, chez les silencieux.
+    # Le modèle donne un effet conditionnel ; les données donnent une association marginale. Quand
+    # les deux divergent, ce n'est pas une erreur, c'est une information — et elle doit être écrite.
+    from .explication import BLOCS_DRIVERS
+    _y_sil = pd.Series(cibles["M3"].astype(str).values, index=df.index)[sil]
+    _d_sil = df[sil]
+
+    # Écart minimal en points de pourcentage en deçà duquel on refuse de conclure : sans ce
+    # garde-fou, un écart de 0,5 point (Phone Service : 18,2 % contre 17,7 %) serait présenté comme
+    # une contradiction avec le modèle, alors qu'il ne distingue rien.
+    ECART_MIN_BRUT = 0.02
+
+    def _assoc_brute(var, nature):
+        """(sens brut, phrase lisible) ou (None, raison) si l'on ne peut pas conclure.
+
+        La variable de comparaison est choisie pour être **de même nature** que ce qu'annonce le
+        modèle : comparer « la tranche 0–6 mois pousse » à « une ancienneté élevée protège » ferait
+        apparaître une contradiction là où les deux disent la même chose.
+        """
+        sources = BLOCS_DRIVERS.get(var, [var])
+        dispo = [c for c in sources if c in _d_sil.columns]
+        if not dispo:
+            return None, "variable composite, non mesurable directement"
+        est_num = lambda c: pd.api.types.is_numeric_dtype(_d_sil[c]) and _d_sil[c].nunique() > 5
+        col = next((c for c in dispo if est_num(c) == (nature != "catégorielle")), dispo[0])
+        serie = _d_sil[col]
+        taux = lambda m: float((_y_sil[m] == "Detracteur").mean()) if m.sum() >= 30 else None
+        if est_num(col):
+            q1, q4 = serie.quantile(0.25), serie.quantile(0.75)
+            t_bas, t_haut = taux(serie <= q1), taux(serie >= q4)
+            if t_bas is None or t_haut is None:
+                return None, "effectifs trop faibles"
+            if abs(t_haut - t_bas) < ECART_MIN_BRUT:
+                return None, f"écart brut négligeable ({t_haut:.1%} contre {t_bas:.1%})"
+            return ("▲" if t_haut > t_bas else "▼",
+                    f"{t_haut:.1%} de détracteurs dans le quart le plus élevé de `{col}` contre {t_bas:.1%} dans le quart le plus bas")
+        vals = {str(v): taux(serie.astype(str) == str(v)) for v in serie.dropna().unique()}
+        vals = {k: v for k, v in vals.items() if v is not None}
+        if len(vals) < 2:
+            return None, "une seule modalité de taille suffisante"
+        pire = max(vals, key=vals.get); mieux = min(vals, key=vals.get)
+        if vals[pire] - vals[mieux] < ECART_MIN_BRUT:
+            return None, f"écart brut négligeable entre modalités ({vals[pire]:.1%} contre {vals[mieux]:.1%})"
+        return ("▲ « " + pire + " »",
+                f"{vals[pire]:.1%} de détracteurs pour « {pire} » contre {vals[mieux]:.1%} pour « {mieux} »")
+
+    _ds = dr.get("detail_sens", {})
+    _lignes_conf, _divergences = [], []
+    for v in list(imp.index)[:10]:
+        sens_modele = dr.get("sens", {}).get(v, "")
+        brut, phrase = _assoc_brute(v, _ds.get(v, {}).get("nature", ""))
+        if brut is None:
+            _lignes_conf.append({"Variable": v, "Effet dans le modèle (toutes choses égales)": sens_modele,
+                                 "Association brute observée": phrase, "": "— rien à conclure"})
+            continue
+        # divergence : le modèle pousse, les données protègent — ou l'inverse
+        m_pousse = sens_modele.startswith("▲"); b_pousse = brut.startswith("▲")
+        meme_modalite = (not m_pousse and not b_pousse) or (m_pousse and b_pousse and (
+            "«" not in sens_modele or "«" not in brut or
+            sens_modele.split("«")[1].split("»")[0].strip() == brut.split("«")[1].split("»")[0].strip()))
+        accord = meme_modalite
+        if not accord:
+            _divergences.append((v, sens_modele, phrase))
+        _lignes_conf.append({"Variable": v, "Effet dans le modèle (toutes choses égales)": sens_modele,
+                             "Association brute observée": phrase, "": "✅ concordent" if accord else "⚠️ divergent"})
+    tab_confrontation = _tab(pd.DataFrame(_lignes_conf))
+    if _divergences:
+        _txt = "\n".join(f"- **{v}** — le modèle dit « {sm} », les données disent {ph}." for v, sm, ph in _divergences)
+        lecture_confrontation = (
+            "⚠️ **Sur " + str(len(_divergences)) + " variable(s), l'effet du modèle et l'association brute pointent en sens "
+            "contraires.** Ce n'est pas une anomalie à corriger, c'est une distinction à comprendre, et la signaler vaut "
+            "mieux que de laisser le lecteur la découvrir seul.\n\n" + _txt + "\n\n"
+            "**Comment les deux peuvent être vrais.** Le coefficient est un effet *toutes choses égales par ailleurs* : il "
+            "répond à « entre deux clients qui ont le même contrat, la même ancienneté, la même facture et le même nombre "
+            "de services, lequel est le plus à risque ? ». L'association brute répond à une autre question : « dans la base "
+            "telle qu'elle est, qui est le plus à risque ? ». Souscrire une option augmente aussi la facture et le nombre "
+            "de services, qui sont dans le modèle ; une fois ces effets tenus constants, il ne reste du signal de l'option "
+            "que ce qu'elle apporte en plus, et ce résidu peut changer de signe.\n\n"
+            "**Ce qu'il faut en faire, côté métier.** Pour **cibler**, c'est le modèle qui décide : il classe des clients "
+            "réels avec toutes leurs caractéristiques à la fois. Pour **agir**, c'est l'association brute qui doit primer "
+            "tant qu'aucune expérience n'a tranché : recommander de retirer une option parce que son coefficient est "
+            "positif serait une faute, puisque les clients qui l'ont sont, dans les faits, deux fois moins détracteurs. "
+            "C'est la raison de fond du groupe de contrôle demandé en phase 6 § 5.")
+    else:
+        lecture_confrontation = ("Sur les dix premiers drivers, l'effet du modèle et l'association brute observée vont dans "
+                                 "le même sens : la lecture métier est directe.")
+    impt = pd.DataFrame({"Variable": imp.index, "Importance": imp.values,
+                         "Sens de l'effet": [dr.get("sens", {}).get(v, "") for v in imp.index],
+                         "Nature": [_ds.get(v, {}).get("nature", "") for v in imp.index]})
     seg = dr.get("par_segment", {})
     f_seg, segt = "", pd.DataFrame()
     if seg:
@@ -1069,8 +1546,74 @@ def phase5(cfg, df, cibles, X, dec, art, R, num, cat, satisfaction):
         ax.set_yticks(range(len(allv))); ax.set_yticklabels(allv, fontsize=7); plt.colorbar(im, fraction=0.03)
         ax.set_title("Drivers par segment — importance moyenne de chaque variable dans le segment", fontsize=8)
         f_seg = _fig("05_drivers_segments.png")
-        segt = pd.DataFrame([{"Segment": s, "Clients": v["clients"], **{f"Driver {i+1}": f"{k} ({d['sens']})" for i, (k, d) in enumerate(list(v['drivers'].items())[:5])}} for s, v in seg.items()])
-    lev = R["leviers"]; levt = pd.DataFrame([{"Levier recommandé": k, "Détracteurs prédits concernés": v} for k, v in lev["distribution_detracteurs_predits"].items()]).sort_values("Détracteurs prédits concernés", ascending=False)
+        segt = pd.DataFrame([{"Segment": s, "Clients": v["clients"],
+                              **{f"Driver {i+1}": f"{k} ({d['importance']:.2f})"
+                                 for i, (k, d) in enumerate(list(v["drivers"].items())[:5])}} for s, v in seg.items()])
+
+    # Lecture des segments : générée à partir des chiffres, pas écrite à la main — l'énoncé demande
+    # de DIRE ce que le modèle apprend par segment, et une figure sans phrase ne le dit pas.
+    def _prem(nom_seg):
+        d_ = seg.get(nom_seg, {}).get("drivers", {})
+        return (list(d_)[0], list(d_.values())[0]) if d_ else (None, None)
+
+    _phrases = []
+    for _s in ("Ancienneté ≥ 24 mois", "Ancienneté < 12 mois", "Fibre", "DSL", "Contrat mensuel", "Contrat 1–2 ans"):
+        _v, _d = _prem(_s)
+        if _v:
+            _phrases.append(f"chez **{_s.lower()}** ({seg[_s]['clients']} clients), la variable qui pèse le plus est "
+                            f"**{_v}** (poids {_d['importance']:.2f})")
+    lecture_segments = ("**Ce qu'on y lit.** " + " ; ".join(_phrases) + "."
+                        " Ces différences sont des effets de composition : le même coefficient appliqué à des populations "
+                        "dont les valeurs diffèrent. Elles restent utiles au ciblage — elles disent sur quoi insister dans "
+                        "quel segment — mais elles ne prouvent pas qu'une variable agit différemment ailleurs.") if _phrases else ""
+    lev = R["leviers"]
+    levt = pd.DataFrame([{"Levier recommandé": k, "Détracteurs prédits concernés": v}
+                         for k, v in lev["distribution_detracteurs_predits"].items()]).sort_values("Détracteurs prédits concernés", ascending=False)
+    _conc = lev.get("concentration_du_levier_dominant")
+    _paires = lev.get("distribution_paires", {})
+    _lp = [f"**{round(100 * _conc)} % des détracteurs prédits reçoivent le même premier levier.**"] if _conc else []
+    _lp.append(lev.get("lecture", ""))
+    if _paires:
+        _lp.append("Les couples (premier levier ▸ second levier) les plus fréquents :\n\n" +
+                   _tab(pd.DataFrame([{"Premier levier ▸ second levier": k, "Clients": v} for k, v in _paires.items()])))
+    if lev.get("distribution_levier_secondaire"):
+        _lp.append(f"Le second levier prend **{lev.get('n_leviers_distincts_en_second', 0)} valeurs distinctes** : "
+                   "c'est lui qui rend deux fiches client différentes, et c'est lui qu'il faut lire en priorité "
+                   "quand le premier est « engagement ».")
+    lecture_leviers = "\n\n".join(x for x in _lp if x)
+
+    # Tableau « actionnable ou non » construit sur les drivers réels (et non écrit à la main).
+    STATUT_ACTION = {
+        "Contract": ("**oui**", "proposer un engagement 12 mois avec avantage"),
+        "Facture mensuelle": ("**oui**", "revue tarifaire, bundle"),
+        "Monthly Charge": ("**oui**", "revue tarifaire, bundle"),
+        "charge_par_service": ("**oui**", "revue tarifaire, bundle"),
+        "Online Security": ("**oui**", "inclure la sécurité en ligne dans l'offre"),
+        "Premium Tech Support": ("**oui**", "proposer le support technique premium"),
+        "Online Backup": ("**oui**", "inclure la sauvegarde en ligne"),
+        "Device Protection Plan": ("**oui**", "proposer la protection d'équipement"),
+        "Parrainage": ("indirectement", "programme de parrainage, invitation ciblée"),
+        "Ancienneté": ("partiellement", "parcours d'accueil renforcé les six premiers mois"),
+        "Internet Type": ("non à court terme", "investissement réseau ; à défaut, support premium"),
+        "Phone Service": ("partiellement", "revoir le couplage voix / internet"),
+        "Paperless Billing": ("**oui**", "accompagner le passage à la facture en ligne"),
+        "Payment Method": ("**oui**", "faciliter le prélèvement automatique"),
+        "Offer": ("**signal, pas levier**", "comprendre à qui l'offre a été proposée"),
+        "Total Charges": ("non directement", "conséquence du prix et de l'ancienneté — agir sur ceux-ci"),
+        "Total Revenue": ("non directement", "conséquence du prix et de l'ancienneté — agir sur ceux-ci"),
+        "Total Long Distance Charges": ("partiellement", "forfait longue distance adapté"),
+        "n_services": ("**oui**", "revoir la composition du bundle"),
+        "Avg Monthly GB Download": ("non", "usage du client — sert à segmenter, pas à agir"),
+        "Streaming Music": ("partiellement", "option de contenu à revoir"),
+        "Streaming Movies": ("partiellement", "option de contenu à revoir"),
+        "Streaming TV": ("partiellement", "option de contenu à revoir"),
+        "Unlimited Data": ("**oui**", "revoir l'enveloppe de données"),
+    }
+    tab_actionnable = _tab(pd.DataFrame([
+        {"Driver (rang)": f"{i}. {v}", "Contribution moyenne": moy.get(v, float('nan')),
+         "Actionnable ?": STATUT_ACTION.get(v, ("à qualifier avec le métier", "—"))[0],
+         "Levier": STATUT_ACTION.get(v, ("", "—"))[1]}
+        for i, v in enumerate(list(imp.index)[:10], 1)]), {"Contribution moyenne": "{:+.3f}"})
 
     eq = R["audit_equite"]
     fig, axes = plt.subplots(1, len(eq), figsize=(2.4 * len(eq), 3.1), sharey=True)
@@ -1084,6 +1627,31 @@ def phase5(cfg, df, cibles, X, dec, art, R, num, cat, satisfaction):
                           "Rappel Dét.": f"{r['rappel_detracteur']:.1%}", "Précision Dét.": f"{r['precision_detracteur']:.1%}"} for d, v in eq.items() for gname, r in v["groupes"].items()])
     ecarts = pd.DataFrame([{"Dimension": d, "Écart max de rappel (pts)": f"{v['ecart_max']*100:.1f}", "Écart max de sélection (pts)": f"{v['ecart_selection']*100:.1f}"} for d, v in eq.items()])
     pire = max(eq.items(), key=lambda kv: kv[1]["ecart_max"])
+
+    # [49] Les écarts de taux de sélection s'interprètent — un écart de sélection qui suit l'écart
+    # de besoin réel est le comportement ATTENDU ; seul un écart de sélection non accompagné d'un
+    # écart de besoin, ou accompagné d'un écart de rappel, signale un défaut. On le génère à partir
+    # des chiffres plutôt que de l'écrire une fois pour toutes.
+    _ls = []
+    for _d, _v in sorted(eq.items(), key=lambda kv: -kv[1]["ecart_selection"])[:3]:
+        _gr = _v["groupes"]
+        _hi = max(_gr, key=lambda g: _gr[g]["taux_selection"]); _lo = min(_gr, key=lambda g: _gr[g]["taux_selection"])
+        _besoin = _gr[_hi]["taux_detracteurs_reel"] - _gr[_lo]["taux_detracteurs_reel"]
+        _suit = abs(_v["ecart_selection"] - _besoin) < 0.06
+        _ls.append(
+            f"- **{_d}** — sélection {_gr[_hi]['taux_selection']:.0%} pour « {_hi} » contre {_gr[_lo]['taux_selection']:.0%} pour « {_lo} » "
+            f"({_v['ecart_selection']*100:.0f} pts d'écart), alors que le taux de détracteurs *réel* passe de "
+            f"{_gr[_lo]['taux_detracteurs_reel']:.0%} à {_gr[_hi]['taux_detracteurs_reel']:.0%} ({_besoin*100:.0f} pts). "
+            + ("L'écart de budget **suit l'écart de besoin** : le modèle appelle davantage là où il y a "
+               "davantage de clients mécontents, ce qui est le comportement attendu et non un biais."
+               if _suit else
+               "L'écart de budget **ne s'explique pas entièrement** par l'écart de besoin : à examiner.")
+            + (f" ⚠️ Mais le rappel diffère aussi de {_v['ecart_max']*100:.0f} points sur cette dimension : c'est un défaut de "
+               "**détection**, pas une différence de besoin — c'est le cas de l'âge, et c'est lui qu'il faut corriger."
+               if _v["ecart_max"] > cfg["criteres_succes"]["ecart_equite_signalement"] else
+               " Le rappel, lui, est homogène sur cette dimension."))
+    lecture_selection = "\n".join(_ls)
+
     px = R["audit_proxies"]
     fig, ax = plt.subplots(figsize=(7, 2.8))
     pxs = pd.Series({k: v["auc"] for k, v in px.items()}).sort_values()
@@ -1092,6 +1660,32 @@ def phase5(cfg, df, cibles, X, dec, art, R, num, cat, satisfaction):
     f_px = _fig("05_proxies.png")
     pxt = pd.DataFrame([{"Attribut (exclu du modèle)": k, "Prévalence": f"{v['prevalence']:.1%}", "AUC de reconstruction": v["auc"],
                          "Lecture": "fortement reconstructible" if v["auc"] > 0.75 else "partiellement" if v["auc"] > 0.6 else "non reconstructible"} for k, v in px.items()])
+    # [42] Quelles variables reconstruisent l'attribut, et ce que coûterait leur retrait.
+    _pf = []
+    for _k, _v in px.items():
+        for _f in _v.get("features_reconstructrices", [])[:5]:
+            _pf.append({"Attribut": _k, "Variable du modèle": _f["variable"],
+                        "Coefficient (standardisé)": _f["coefficient"]})
+    tab_proxies_features = (_tab(pd.DataFrame(_pf), {"Coefficient (standardisé)": "{:+.2f}"}) if _pf else
+                            "*(Détail indisponible — relancer `python -m src.run`.)*")
+
+    _abl_px = abt[abt["Configuration"].str.contains("proxies d'âge", regex=False)]
+    if len(_abl_px):
+        _dk = float(_abl_px["Δ kappa"].iloc[0]); _nv = int(_abl_px["Variables"].iloc[0])
+        _retirees = R.get("proxies_age_retires", [])
+        ablation_proxies_txt = (
+            f"**Et si on les retirait ?** La question mérite un chiffre, pas une opinion. Une configuration d'ablation "
+            f"« − top-3 proxies d'âge » ({', '.join(_retirees) if isinstance(_retirees, list) else '—'}) a été ajoutée au "
+            f"tableau du § 5.3 : le kappa y varie de **{_dk:+.3f}** pour {_nv} variables conservées. "
+            + ("Le coût est faible, mais le bénéfice l'est tout autant : l'âge reste reconstructible par les variables "
+               "restantes, parce qu'il l'est par la structure même de la clientèle (les jeunes sont en contrat mensuel "
+               "et récents). Retirer trois variables déplacerait le problème sans le résoudre."
+               if abs(_dk) < 0.02 else
+               "Le coût est net, et il ne garantit pas la disparition du proxy : l'arbitrage penche pour conserver "
+               "ces variables et corriger par les seuils du § 7.3."))
+    else:
+        ablation_proxies_txt = ""
+
     mit = R["mitigation_seuils_age"]
     mitrows = []
     for g_, av in mit["avant"].items():
@@ -1100,6 +1694,57 @@ def phase5(cfg, df, cibles, X, dec, art, R, num, cat, satisfaction):
                         "Précision avant": f"{av['precision_detracteur']:.1%}", "Précision après": f"{ap_['precision']:.1%}" if ap_ else "—",
                         "Sélection avant": f"{av['taux_selection']:.1%}", "Sélection après": f"{ap_['taux_selection']:.1%}" if ap_ else "—", "Seuil": ap_.get("seuil", "—")})
     mitt = pd.DataFrame(mitrows); ga, gp = mit["global_avant"], mit["global_apres"]
+
+    # [43] Les politiques comparées : rappels par groupe, appels, euros. L'arbitrage se fait sur
+    # des colonnes comparables, pas sur une phrase.
+    _pol = mit.get("politiques", {})
+    if _pol:
+        _rows = []
+        for _nom, _v in _pol.items():
+            _ligne = {"Politique": _nom, "Écart max de rappel": _v.get("ecart_max_rappel"),
+                      "Appels": _v.get("appels"), "Vrais détracteurs appelés": _v.get("vrais_detracteurs_appeles"),
+                      "Gain net": _v.get("gain_net_eur")}
+            _ligne.update({f"Rappel {g}": r for g, r in (_v.get("rappels_par_groupe") or {}).items()})
+            _rows.append(_ligne)
+        _pt = pd.DataFrame(_rows)
+        _fmt = {"Écart max de rappel": "{:.1%}", "Gain net": _eur}
+        _fmt.update({c: "{:.1%}" for c in _pt.columns if c.startswith("Rappel ")})
+        tab_politiques = _tab(_pt, _fmt)
+
+        _aucune = next((v for k, v in _pol.items() if k.startswith("aucune")), {})
+        _niv = next((v for k, v in _pol.items() if k.startswith("nivellement —")), {})
+        _rat = next((v for k, v in _pol.items() if k.startswith("rattrapage")), {})
+        _ins = next((v for k, v in _pol.items() if "in-sample" in k), {})
+        _mk = cfg["metier"]
+        _bits = []
+        if _niv and _ins:
+            _bits.append(
+                f"**La promesse et le réel.** Calés sur les silencieux eux-mêmes, les seuils égalisent les rappels "
+                f"presque parfaitement ({_ins.get('ecart_max_rappel', 0):.1%} d'écart résiduel). Appris sur les répondants "
+                f"et appliqués aux silencieux — la seule façon honnête de procéder — ils ramènent l'écart de "
+                f"{_aucune.get('ecart_max_rappel', 0):.1%} à **{_niv.get('ecart_max_rappel', 0):.1%}**, sans l'annuler. "
+                "C'est l'écart entre ce qu'une mitigation promet sur le papier et ce qu'elle tient en production.")
+        if _niv and _aucune:
+            _d_appels = _niv.get("appels", 0) - _aucune.get("appels", 0)
+            _bits.append(
+                f"**Ce que coûte le nivellement, en euros.** Il ajoute **{_d_appels} appels** par campagne, soit "
+                f"{_eur(_d_appels * _mk['cout_appel_eur'])} au coût d'appel retenu ({_mk['cout_appel_eur']} € l'appel), pour un gain net qui passe de "
+                f"{_eur(_aucune.get('gain_net_eur', 0))} à {_eur(_niv.get('gain_net_eur', 0))}. "
+                "⚠️ Et il faut dire ce que « niveler » veut dire : ramener **tous** les groupes au rappel global "
+                "**abaisse** la couverture de ceux qui étaient les mieux servis. Les seniors mécontents aujourd'hui "
+                "détectés le seraient moins. Égaliser par le bas est une décision, pas une correction technique.")
+        if _rat:
+            _d_appels_r = _rat.get("appels", 0) - _aucune.get("appels", 0)
+            _bits.append(
+                f"**La variante qui ne prend rien à personne.** Ne relever que le groupe le moins bien servi "
+                f"(« {_rat.get('groupe_releve', '<30')} »), sans toucher aux autres seuils, ramène l'écart à "
+                f"**{_rat.get('ecart_max_rappel', 0):.1%}** pour **{_d_appels_r} appels** de plus "
+                f"({_eur(_d_appels_r * _mk['cout_appel_eur'])}) et un gain net de {_eur(_rat.get('gain_net_eur', 0))}. "
+                "C'est la politique que cette étude recommande de soumettre au métier : elle corrige l'inégalité sans "
+                "dégrader la détection d'un seul groupe.")
+        lecture_mitigation = "\n\n".join(_bits)
+    else:
+        tab_politiques = _tab(mitt); lecture_mitigation = ""
 
     repro = _charger_json("reproductibilite")
     repro_txt = "*Test à blanc non exécuté.*"
@@ -1115,6 +1760,24 @@ exécution de `python -m src.run`, comparaison des indicateurs clés. Durée : {
     cls_t = pd.DataFrame(m["par_classe"]).T.reset_index().rename(columns={"index": "Classe"}); cls_t["Classe"] = cls_t["Classe"].map(LIB); cls_t["effectif"] = cls_t["effectif"].astype(int)
     cls_t.columns = ["Classe", "Précision", "Rappel", "F1", "Effectif"]
     k_log = R["comparatif_s3_m3"]["logistique"]["defaut"]["silencieux"]["kappa"]
+    # Le rappel Détracteur de la baseline, publié même lorsqu'il est en défaveur du modèle retenu :
+    # un critère de succès qu'on ne confronte pas au résultat n'est pas un critère.
+    rd_log5 = R["comparatif_s3_m3"]["logistique"]["defaut"]["silencieux"]["rappel_detracteur"]
+    _pk_ret = R["evaluation_metier"]["precision_at_k"]["precision_at_k"]
+    _pk_base = next((c.get("precision_at_k_silencieux") for c in R["selection_modele_final"]["classement"]
+                     if c["modele"] == "logistique"), None)
+    if m["par_classe"]["Detracteur"]["rappel"] >= rd_log5 - 0.005:
+        note_rappel5 = ""
+    else:
+        note_rappel5 = (
+            "⚠️ **Le critère de rappel Détracteur n'est pas atteint, et ce n'est pas un oubli.** La baseline "
+            f"logistique capte {rd_log5:.0%} des détracteurs contre {m['par_classe']['Detracteur']['rappel']:.0%} pour le modèle retenu. "
+            "Elle y parvient en prédisant « Détracteur » beaucoup plus souvent : sa précision est plus faible et "
+            "elle écrase la classe Passif. Le critère qui décide de l'usage réel est la précision à capacité "
+            "d'appel fixe, et il départage dans l'autre sens"
+            + (f" — {_pk_ret:.0%} pour le modèle retenu contre {_pk_base:.0%} pour la baseline" if _pk_base else "")
+            + ". Un rappel élevé obtenu en sur-prédisant une classe n'est pas une performance : on publie le "
+              "chiffre défavorable, et la raison de ne pas le suivre.\n")
     auc_j = px.get("Moins de 30 ans", {}).get("auc", float("nan"))
 
     _md("05_evaluation.md", f"""
@@ -1216,28 +1879,46 @@ moyenne pour cibler une campagne. L'application propose cette pondération en op
 {_tab(segnps, {'Part Dét. prédite':'{:.1%}','Part Dét. vraie':'{:.1%}'})}
 
 Le classement des segments par NPS est respecté (contrats mensuels et clients récents sont bien les
-plus critiques) ; les niveaux sont exagérés dans les deux sens — effet du biais de réponse sur un
-modèle qui n'a jamais vu de Passifs en nombre.
+plus critiques) ; les niveaux sont déformés — effet du biais de réponse.
+{quant_txt}
 
 ## 5. Robustesse et sensibilité
 
 **5.1 Sensibilité au mapping de la cible** (énoncé § 4.1). Kappa du modèle retenu sous les trois
-mappings (S3) : M1 {kmap['M1']:.3f} · M2 {kmap['M2']:.3f} · M3 {kmap['M3']:.3f} — ⚠️ non comparables entre eux (déplacer le milieu ambigu
-change la difficulté). Ce qui se compare, ce sont les **conclusions** : sur les 12 variables les plus
-influentes (logistique, dont les coefficients sont directement comparables), **{stables} conservent le même
-sens d'effet sous les trois mappings**. Les conclusions métier sont robustes au choix du mapping ;
-c'est l'amplitude qui varie, pas la direction.
+mappings (S3) : M1 {kmap['M1']:.3f} · M2 {kmap['M2']:.3f} · M3 {kmap['M3']:.3f}. ⚠️ **Ces trois nombres ne sont pas comparables** :
+déplacer le milieu ambigu change la difficulté de la tâche et la prévalence des classes. Les mettre
+côte à côte pour désigner un gagnant serait une erreur de lecture — il faut donc comparer autre
+chose, et deux choses seulement se comparent.
+
+**(a) Le sens des effets.** Le modèle **retenu** est réajusté sous chaque mapping sur les mêmes
+répondants, et l'on regarde si une variable qui pousse vers la détraction sous M3 y pousse encore
+sous M1 et M2. {sens_txt}
+
+{tab_sens_coef}
+
+**(b) L'effet métier.** C'est ce qui change vraiment pour l'équipe rétention : la part de clients
+prédits détracteurs, et la qualité de la liste d'appels.
+
+{tab_sens_metier}
+
+{lecture_sens_metier}
 
 ![]({f_sens})
 
 **5.2 Bruit d'étiquettes** (énoncé § 4.1 : « adding realistic noise »). On corrompt une part des
-étiquettes d'entraînement (classe redistribuée au hasard) et on mesure sur les silencieux, dont les
-étiquettes restent vraies.
+étiquettes d'entraînement et on mesure sur les silencieux, dont les étiquettes restent vraies.
+
+Le mot important de la consigne est **realistic**, et il commande la forme du bruit. Une note
+d'enquête ne se trompe pas au hasard : un promoteur mal mesuré devient passif bien plus souvent que
+détracteur, et ce sont les notes du milieu qui sont les plus fragiles. Le bruit **ordinal** appliqué
+ici bascule donc vers une classe adjacente dans 80 % des cas et vers la classe opposée dans 20 %, en
+exposant trois fois plus les clients notés 3. Le bruit **uniforme** — toutes les erreurs
+équiprobables, promoteur → détracteur compris — est rapporté à côté comme borne pessimiste, et non
+comme scénario crédible.
 
 {_tab(brt, {'Kappa':'{:.3f}','Macro-F1':'{:.3f}','Rappel Dét.':'{:.3f}','Rappel Passif':'{:.3f}','Rappel Prom.':'{:.3f}'})}
 
-Le kappa perd {(br['kappa'].iloc[0] - br['kappa'].iloc[-1]):.3f} entre 0 et {br['taux_bruit'].iloc[-1]:.0%} de bruit : dégradation {'graduelle, pas d’effondrement' if (br['kappa'].iloc[0] - br['kappa'].iloc[-1]) < 0.12 else 'marquée'}. Un
-label NPS réel est bruité (humeur du jour, incompréhension de l'échelle) ; ce test borne ce que ça coûte.
+{lecture_bruit}
 
 **5.3 Ablation de features** — ce que chaque bloc coûte ou rapporte, modèle retenu, S3/M3, silencieux :
 
@@ -1256,12 +1937,38 @@ Retirer `Contract` : {_delta('Contract')} ; retirer `Offer` : {_delta('Offer')}.
 
 ## 6. Drivers de détraction
 
-Méthode : **{dr['methode']}** — la même dans l'application, pour chaque client. Les contributions sont
-lues pour la classe Détracteur ; les variables liées par identité comptable (phase 3 § 3.5) se lisent en bloc.
+**Méthode** : {dr['methode']} — la même que dans l'application, client par client. **Agrégation** :
+{dr.get('agregation', '—')}. **Périmètre** : {dr.get('perimetre', '—')}.
+
+Un mot sur l'agrégation, parce qu'elle change la lecture du tableau. L'encodage one-hot crée une
+colonne par modalité et le modèle répartit l'effet entre elles ; lire `Online Security = No` et
+`Online Security = Yes` comme deux variables de signes opposés n'a aucun sens, ce sont les deux faces
+d'une seule. Les colonnes d'une même variable d'origine sont donc **sommées avant tout classement**,
+et les blocs métier redondants sont regroupés — le parrainage réunit `Number of Referrals` et
+`a_parraine`, dont les coefficients se compensaient et faisaient apparaître « avoir parrainé » comme
+un facteur de risque. Après agrégation, l'effet net du parrainage est protecteur, conformément au
+texte de cette section.
 
 ![]({f_imp})
 
-{_tab(impt.head(20), {'Importance':'{:.4f}','Sens (corrélation valeur ↔ contribution)':'{:+.2f}'})}
+{_tab(impt.head(20), {'Importance':'{:.4f}'})}
+
+*Lecture du sens* : {dr.get('legende_sens', '')}
+
+**Ce que dit le modèle, et ce que disent les données.** Un coefficient et une statistique
+descriptive ne répondent pas à la même question. Les confronter est le seul moyen de savoir quand
+on peut lire un driver comme un conseil d'action.
+
+{tab_confrontation}
+
+{lecture_confrontation}
+
+*(Deux rédactions antérieures étaient fautives et il vaut mieux le dire que de laisser croire que ce
+tableau a toujours eu cette forme. La première affichait une « corrélation entre la valeur et la
+contribution » : pour un modèle additif elle vaut ±1 par construction et ne mesurait rien. La seconde
+affichait la contribution moyenne signée : pour une variable numérique standardisée, cette moyenne
+vaut environ zéro, et elle faisait apparaître la facture mensuelle comme protectrice — le contraire
+de ce que dit le modèle. Le sens est désormais calculé selon la nature de la variable.)*
 
 **Ce que le modèle dit.** Les associations sont fortes et cohérentes avec la littérature sur ce
 dataset (Chong et al. 2023) et sur le NPS télécom (Elero et al. 2026) : **contrat sans engagement,
@@ -1269,22 +1976,38 @@ faible ancienneté, absence de parrainage, charge mensuelle élevée** vont avec
 ressort comme marqueur de clients déjà fragiles (phase 2 § 5.5), pas comme cause. **Le modèle établit
 des associations, pas des causes** : un coefficient positif est un signal, pas un levier prouvé.
 
-**Drivers par segment** (énoncé § 4.6) — les mêmes variables ne pèsent pas partout pareil :
+**Drivers par segment** (énoncé § 4.6) — où chaque variable pèse le plus :
+
+⚠️ **Ce tableau ne dit pas ce qu'on croit qu'il dit, et la nuance est importante.** Le modèle retenu
+est additif, sans terme d'interaction : le coefficient d'une variable est **le même dans tous les
+segments**. Ce qui change d'un segment à l'autre, c'est la *distribution des valeurs*, donc le poids
+que la variable prend dans le total. Un « driver de segment » est donc un **effet de composition**,
+pas un effet propre au segment, et l'affirmer autrement serait faux. La variable qui définit un
+segment est par ailleurs exclue de son propre classement : dire que « contrat mensuel » est le
+premier driver du segment « contrat mensuel » ne renseigne personne, puisqu'elle y vaut 1 partout.
+Pour obtenir de vrais drivers propres à chaque segment, il faudrait ajuster un modèle par segment ou
+introduire des interactions — c'est hors du périmètre retenu (phase 1 § 5.2).
 
 {('![](' + f_seg + ')') if f_seg else ''}
 
 {_tab(segt) if len(segt) else ''}
 
-**Actionnable ou non, et levier** :
+*Chaque cellule donne la variable et son **poids** dans le segment. Aucun sens n'y figure, et c'est
+volontaire : le modèle étant additif, le sens d'une variable est le même dans tous les segments — il
+se lit dans le tableau global ci-dessus. Ce qui change ici, c'est uniquement l'importance relative.*
 
-| Driver | Actionnable ? | Levier |
-|---|---|---|
-| Contrat mensuel | **oui** | proposer un engagement 12 mois avec avantage |
-| Faible ancienneté | partiellement | parcours d'accueil renforcé les 6 premiers mois |
-| Charge mensuelle / par service élevée | **oui** | revue tarifaire, bundle |
-| Absence de parrainage | indirectement | programme de parrainage |
-| Offre E reçue | **signal, pas levier** | ne pas « supprimer l'offre E » — comprendre à qui elle a été proposée |
-| Type d'accès (fibre) | non à court terme | investissement réseau, support premium |
+{lecture_segments}
+
+**Actionnable ou non, et levier** — construit à partir des **dix premiers drivers réels** du tableau
+ci-dessus, pas d'une liste écrite à la main. La distinction que demande l'énoncé est celle-ci : une
+entreprise peut changer un contrat, elle ne peut pas changer une démographie.
+
+{tab_actionnable}
+
+À part, parce qu'il ne vient pas du modèle : **l'offre E** ressort de l'analyse exploratoire
+(phase 2 § 5.5) comme marqueur de clients déjà fragiles, et non comme cause. Elle ne figure pas dans
+les dix premiers drivers ; la conclusion métier est de comprendre **à qui** elle a été proposée, pas
+de la supprimer.
 
 **Règle de recommandation individuelle** (implémentée, affichée pour chaque client) :
 {chr(10).join('- ' + r for r in lev['regle'])}
@@ -1293,7 +2016,9 @@ Répartition parmi les détracteurs prédits :
 
 {_tab(levt)}
 
-*{lev['avertissement']}.*
+{lecture_leviers}
+
+*{lev['avertissement']}*
 
 ## 7. Équité et biais (énoncé § 4.7)
 
@@ -1308,10 +2033,20 @@ alloue le budget d'appels). `zone` = tertiles de population du code postal (prox
 
 {_tab(ecarts)}
 
+*Tranches d'âge fermées à gauche : « <30 » = [0 ; 30[, « 60+ » = [60 ; 120[. Les bornes disent donc
+exactement ce que les libellés annoncent, et le groupe « moins de 30 ans » est le même ici et dans
+l'audit des proxies (§ 7.2).*
+
 **7.1 Ce qu'on trouve.** L'écart le plus important porte sur **{pire[0]} : {pire[1]['ecart_max']*100:.0f} points** de rappel entre le groupe le
 mieux servi et le moins bien servi — le modèle rappelle {eq['tranche_age']['groupes']['<30']['rappel_detracteur']:.0%} des détracteurs de moins de 30 ans contre
-{eq['tranche_age']['groupes']['60+']['rappel_detracteur']:.0%} des 60 ans et plus. C'est le cas de figure que l'énoncé décrit comme inacceptable, **en sens
-inverse** : ce sont les jeunes détracteurs qu'on rate. Les écarts par genre et par densité de zone sont faibles.
+{eq['tranche_age']['groupes']['60+']['rappel_detracteur']:.0%} des 60 ans et plus. C'est exactement le cas de figure que l'énoncé décrit comme inacceptable,
+**en sens inverse** : ce sont les jeunes détracteurs qu'on rate.
+
+**Et les écarts de taux de sélection ?** Le tableau en montre de larges sur d'autres dimensions — le
+taux de sélection est la part du groupe qu'on prédit détractrice, donc ce qui **alloue réellement le
+budget d'appels**. Il faut les lire, et ils ne disent pas tous la même chose.
+
+{lecture_selection}
 
 **7.2 Les features « proxent »-elles les attributs protégés ?** Pour chaque attribut exclu, on mesure à
 quel point les features du modèle permettent de le reconstruire (AUC en validation croisée) :
@@ -1320,31 +2055,68 @@ quel point les features du modèle permettent de le reconstruire (AUC en validat
 
 {_tab(pxt, {'AUC de reconstruction':'{:.3f}'})}
 
-**Exclure une variable ne suffit pas à ce que le modèle l'ignore.** L'âge et la situation familiale sont
-largement reconstructibles à partir du contrat, de l'ancienneté, des services et du parrainage ; le
-genre et la densité de zone ne le sont pas. C'est la raison structurelle de l'écart d'âge : le modèle
-« voit » l'âge sans en avoir la colonne. L'exclusion reste justifiée (elle empêche une décision
-*explicite* sur l'attribut et retire le levier le plus direct), mais elle ne dispense pas de l'audit.
+**Exclure une variable ne suffit pas à ce que le modèle l'ignore.** C'est la raison structurelle de
+l'écart d'âge : le modèle « voit » l'âge sans en avoir la colonne. Mais dire cela ne suffit pas non
+plus — encore faut-il nommer **quelles** variables le reconstruisent, sinon le constat ne peut être
+ni vérifié ni corrigé. Les voici, tirées des coefficients du classifieur de reconstruction :
 
-**7.3 Mitigation testée : un seuil de décision par tranche d'âge**, calé pour que chaque groupe atteigne
-le rappel global ({mit['rappel_cible']:.0%}). Ce que ça coûte :
+{tab_proxies_features}
 
-{_tab(mitt)}
+{ablation_proxies_txt}
 
-| | Kappa | Macro-F1 | Rappel Dét. | Précision Dét. | Appels (prédits Détracteur) |
-|---|---|---|---|---|---|
-| Avant | {ga['kappa']:.3f} | {ga['macro_f1']:.3f} | {ga['rappel_detracteur']:.3f} | {ga['precision_detracteur']:.3f} | {mit['appels_avant']} |
-| Après seuils par âge | {gp['kappa']:.3f} | {gp['macro_f1']:.3f} | {gp['rappel_detracteur']:.3f} | {gp['precision_detracteur']:.3f} | {mit['appels_apres']} |
+**Ce qu'on garde, ce qu'on retire, et pourquoi.** On **garde** ces variables. Elles ne sont pas des
+substituts commodes de l'âge : ce sont les leviers du métier — le contrat, l'ancienneté, la facture,
+les services. Les retirer coûterait de la performance sans faire disparaître l'information, puisque
+d'autres variables corrélées prendraient le relais, et priverait la recommandation de tout contenu
+actionnable. On **retire** en revanche les attributs protégés eux-mêmes (âge, genre, situation
+familiale, code postal), ce qui empêche une décision *explicite* sur l'attribut. Ce choix est
+défendable, il n'est pas suffisant : il appelle l'audit ci-dessus à chaque réentraînement.
 
-Égaliser le rappel se paie en précision chez les jeunes (plus d'appels inutiles) et en volume global.
-C'est un arbitrage **métier et juridique**, pas technique : traiter différemment selon l'âge pour
-corriger un écart est légal dans certaines juridictions et pas dans d'autres.
+⚠️ **Une limite à ne pas taire.** L'énoncé cite le code postal comme proxy du niveau
+socio-économique. Ici, la seule variable géographique disponible est la **densité de population** du
+code postal, et c'est elle qui est testée — pas le revenu. Aucune donnée de revenu par code postal
+n'a été jointe (phase 2 § 6), donc la reconstruction d'un **niveau socio-économique** par la facture
+ou les services **n'a pas pu être auditée**. Si un enrichissement Census était un jour ajouté, il
+devrait l'être d'abord pour cet audit, et non pour le modèle.
 
-**7.4 À remonter avant production.**
-1. L'écart d'âge ({pire[1]['ecart_max']*100:.0f} pts) et sa cause (proxies) — à l'équipe Expérience Client et au juridique.
-2. Le fait que la mitigation par seuils est possible et chiffrée, mais qu'elle constitue un traitement
-   différencié selon l'âge : décision à prendre au-dessus de la data science.
-3. L'audit doit être répété à chaque réentraînement — il est dans le monitoring (phase 6 § 4).
+**7.3 Mitigation testée : un seuil de décision par tranche d'âge**, calé pour que chaque groupe
+atteigne le rappel global ({mit['rappel_cible']:.0%}).
+
+**Deux précautions de méthode, sans lesquelles les chiffres seraient flatteurs.** D'abord, les seuils
+sont appris **sur les répondants** puis appliqués aux silencieux. Les caler sur les silencieux
+eux-mêmes — c'est-à-dire sur la population qui sert ensuite à juger la mitigation — égaliserait les
+rappels *par construction* : on mesurerait l'ajustement, pas l'effet. Ensuite, le seuil retenu est le
+seuil **exact**, non arrondi : comme il vaut par construction la probabilité d'un détracteur précis,
+l'arrondir à quatre décimales excluait ce client de chaque groupe et faisait diverger le tableau
+global du tableau par groupe.
+
+{tab_politiques}
+
+{lecture_mitigation}
+
+C'est un arbitrage **métier et juridique**, pas technique.
+
+**7.4 À remonter avant production.** L'énoncé demande de signaler ce qui doit remonter à une équipe
+Expérience Client ou juridique. Trois points, formulés comme des **questions à poser**, pas comme des
+conclusions que la data science n'a pas qualité à rendre.
+
+1. **L'écart d'âge ({pire[1]['ecart_max']*100:.0f} points) et sa cause.** Le modèle n'utilise pas l'âge, mais le contrat,
+   l'ancienneté et les services le reconstruisent (§ 7.2). *Question au métier* : une couverture
+   inégale des clients mécontents selon l'âge est-elle acceptable pendant le temps qu'il faudra pour
+   la corriger, et si non, quelle politique du § 7.3 retient-on ?
+2. **La mitigation est possible et chiffrée, mais c'est un traitement différencié selon l'âge.**
+   *Question au juridique*, et elle n'a pas la même réponse partout : un seuil par tranche d'âge
+   est-il un traitement différencié prohibé ou une mesure correctrice admise ? Les cadres à
+   consulter : en France et dans l'Union européenne, la prohibition des discriminations fondées sur
+   l'âge dans la fourniture de biens et services (loi n° 2008-496 et article 225-1 du code pénal),
+   ainsi que les obligations du règlement européen sur l'IA pour les systèmes affectant l'accès à des
+   services ; aux États-Unis — le dataset est californien — il n'existe pas de protection générale de
+   l'âge en marketing grand public hors crédit (ECOA), mais le Unruh Civil Rights Act s'applique en
+   Californie. *(L'étude ne tranche pas ce point : elle le pose, chiffré, à qui a qualité pour le faire.)*
+3. **L'audit doit être répété à chaque réentraînement.** Il l'est : le rappel Détracteur par tranche
+   d'âge est recalculé sur les réponses cumulées de chaque mois et lève une alerte au-delà du seuil
+   de signalement (phase 6 § 4). Le seuil est celui de la phase 1 — {cfg['criteres_succes']['ecart_equite_signalement']:.0%} — et le même partout dans
+   l'étude ; une version antérieure de la carte de monitoring en annonçait 15, incohérence corrigée.
 
 ## 8. Limites de la règle de ciblage
 
@@ -1369,17 +2141,22 @@ et al. La seule chose à faire, gratuite, est en phase 6 § 5.
 
 | Critère de succès (phase 1) | Résultat | Verdict |
 |---|---|---|
-| Précision@{pk0['k']} nettement au-dessus du taux de base | {pk0['precision_at_k']:.1%} vs {pk0['taux_de_base']:.1%} (×{pk0['lift']:.1f}) | ✅ |
+| Précision@{pk0['k']} ≥ {cfg['criteres_succes']['precision_at_k_min']:.0%} et lift ≥ {cfg['criteres_succes']['lift_min']:g} | {pk0['precision_at_k']:.1%} vs {pk0['taux_de_base']:.1%} de base (×{pk0['lift']:.1f}) | {'✅' if pk0['precision_at_k'] >= cfg['criteres_succes']['precision_at_k_min'] and pk0['lift'] >= cfg['criteres_succes']['lift_min'] else '⚠️'} |
 | Gain net vs aléatoire, en euros | {_eur(eco['gain_apporte_par_le_modele_eur'])} par campagne | ✅ (hypothèses à valider) |
-| Kappa et rappel Détracteur au niveau de la baseline ou au-dessus | retenu {_libmod(mf['modele'])} : kappa {m['kappa_quadratique']:.3f} ; logistique {k_log:.3f} | {'✅' if m['kappa_quadratique'] >= k_log - 0.005 else '⚠️ légèrement en dessous — prix de la sélection sans regarder le test'} |
+| Kappa au niveau de la baseline ou au-dessus | retenu {_libmod(mf['modele'])} : {m['kappa_quadratique']:.3f} ; baseline logistique : {k_log:.3f} | {'✅' if m['kappa_quadratique'] >= k_log - 0.005 else '⚠️ légèrement en dessous — prix de la sélection sans regarder le test'} |
+| Rappel Détracteur au niveau de la baseline ou au-dessus | retenu {m['par_classe']['Detracteur']['rappel']:.3f} ; baseline {rd_log5:.3f} | {'✅' if m['par_classe']['Detracteur']['rappel'] >= rd_log5 - 0.005 else '⚠️ **non atteint** — voir la note sous le tableau'} |
 | Aucune classe abandonnée | rappel Passif {m['par_classe']['Passif']['rappel']:.2f} | ✅ |
 | Écart d'équité mesuré, signalé si > 10 pts | {pire[1]['ecart_max']*100:.0f} pts sur l'âge, cause identifiée, mitigation chiffrée | ⚠️ **signalé, arbitrage remonté** |
+
+{note_rappel5}
 
 **Solide** : registre de fuites quantifié ; arbitrage empirique des « 3 » sans circularité ; protocole
 15/85 avec coût du MNAR mesuré ; quinze modèles, sélection sans regarder le test ; calibration
 vérifiée ; audit d'équité avec proxies et mitigation. **Approximatif** : hypothèses économiques
-(placeholders) ; propension à répondre simulée ; verbatims synthétiques sans clé API ; TabPFN non
-évalué faute d'accès. **Impossible avec ces données** : estimer l'effet d'un appel.
+(placeholders) ; propension à répondre simulée ; verbatims synthétiques sans clé API ; TabPFN 2.5 non
+évalué, faute d'acceptation de licence PriorLabs. **Impossible avec ces données** : estimer l'effet
+d'un appel, et distinguer une note d'enquête d'une note construite en cohérence avec le churn
+(phase 3 § 1.6).
 
 **Reproductibilité — test à blanc depuis une copie vierge.** {repro_txt}
 
@@ -1404,6 +2181,14 @@ def phase6(cfg, R, art):
     if mo:
         d_cur = pd.DataFrame(mo["derive_entrees_courant"]).head(8); d_sim = pd.DataFrame(mo["derive_entrees_mois_simule"]).head(8); pd_ = mo["part_detracteurs_predits"]
         su = mo.get("suivi_nouvelles_reponses"); suivi_txt = ""
+        # Les déclencheurs de réentraînement, avec leur état sur le mois simulé : un déclencheur
+        # qu'on énonce sans montrer qu'il se déclenche n'est pas un dispositif, c'est une intention.
+        _dc = mo.get("declencheurs_reentrainement", [])
+        tab_declencheurs = ("\n**Les déclencheurs de réentraînement, et leur état sur le mois simulé** — on montre qu'ils "
+                            "se déclenchent, on ne se contente pas de les annoncer :\n\n"
+                            + _tab(pd.DataFrame([{"Déclencheur": d["declencheur"], "Règle": d["regle"],
+                                                  "Déclenché sur la simulation": "⚠️ oui" if d["etat_mois_simule"] else "non"}
+                                                 for d in _dc]))) if _dc else ""
         if su:
             lots = pd.DataFrame(su["lots"])
             fig, ax = plt.subplots(figsize=(7, 3))
@@ -1415,20 +2200,33 @@ def phase6(cfg, R, art):
                 ax.axvline(su["premier_mois_volume_atteint"], color="k", ls="--", lw=0.8, label=f"{su['seuils']['min_nouveaux_labels']} nouveaux labels atteints")
             ax.set_xlabel("mois"); ax.set_title("Performance sur les nouvelles réponses d'enquête (simulation)"); ax.legend(fontsize=6.5)
             f_nr = _fig("06_nouvelles_reponses.png")
-            lt = lots[["mois", "nouvelles_reponses", "cumul", "kappa_lot", "rappel_detracteur_lot", "kappa_cumul", "rappel_detracteur_cumul", "chute_performance", "volume_atteint"]].copy()
+            _eq_ok = "ecart_equite_age_cumul" in lots.columns
+            _cols_lt = ["mois", "nouvelles_reponses", "cumul", "kappa_lot", "rappel_detracteur_lot", "kappa_cumul",
+                        "rappel_detracteur_cumul"] + (["ecart_equite_age_cumul", "alerte_equite"] if _eq_ok else []) + \
+                       ["chute_performance", "volume_atteint"]
+            lt = lots[_cols_lt].copy()
             lt["chute_performance"] = lt["chute_performance"].map({True: "⚠️", False: ""}); lt["volume_atteint"] = lt["volume_atteint"].map({True: "✓", False: ""})
-            lt.columns = ["Mois", "Nouvelles réponses", "Cumul", "Kappa (lot)", "Rappel Dét. (lot)", "Kappa (cumul)", "Rappel Dét. (cumul)", "Chute", "Volume atteint"]
+            if _eq_ok:
+                lt["alerte_equite"] = lt["alerte_equite"].map({True: "⚠️", False: ""})
+            lt.columns = (["Mois", "Nouvelles réponses", "Cumul", "Kappa (lot)", "Rappel Dét. (lot)", "Kappa (cumul)", "Rappel Dét. (cumul)"]
+                          + (["Écart d'équité (âge, cumul)", "Alerte équité"] if _eq_ok else [])
+                          + ["Chute", "Volume atteint"])
             suivi_txt = f"""
 **Performance sur les nouvelles réponses d'enquête** (simulation : ~150 réponses par mois, tirées parmi les
 silencieux selon la propension biaisée S3) :
 
 ![]({f_nr})
 
-{_tab(lt, {'Kappa (lot)':'{:.3f}','Rappel Dét. (lot)':'{:.3f}','Kappa (cumul)':'{:.3f}','Rappel Dét. (cumul)':'{:.3f}'})}
+{_tab(lt, {'Kappa (lot)':'{:.3f}','Rappel Dét. (lot)':'{:.3f}','Kappa (cumul)':'{:.3f}','Rappel Dét. (cumul)':'{:.3f}',"Écart d'équité (âge, cumul)":'{:.1%}'})}
 
 Référence : kappa {su['reference']['kappa']:.3f}, rappel {su['reference']['rappel_detracteur']:.3f}. Seuils : chute de kappa > {su['seuils']['chute_kappa']}, chute de rappel
 > {su['seuils']['chute_rappel_detracteur']}, volume minimal {su['seuils']['min_nouveaux_labels']} nouveaux labels (atteint au mois {su['premier_mois_volume_atteint']}), échéance {su['seuils']['echeance_max_mois']} mois.
 Chute détectée sur la simulation : {'oui' if su['chute_detectee'] else 'non'}. {su['note']}.
+
+**L'équité est surveillée, pas seulement auditée une fois.** {su.get('note_equite', '')}
+Sur cette simulation, l'alerte d'équité se déclenche {('dès le mois ' + str(su['premier_mois_alerte_equite'])) if su.get('premier_mois_alerte_equite') else 'à aucun moment'} —
+{'ce qui est attendu : l’écart mesuré en phase 5 dépasse le seuil de signalement, et le monitoring le retrouve sur les nouvelles réponses' if su.get('alerte_equite_detectee') else 'les groupes restent dans la marge sur les volumes simulés'}.
+{tab_declencheurs}
 """
         section_mo = f"""
 ![](figures/06_monitoring.png)
@@ -1460,7 +2258,7 @@ exactement ce que le monitoring doit voir.
 # Phase 6 — Déploiement
 
 **En bref.** Le modèle est persisté d'un bloc (préprocessing + modèle + calibrateur) et consommé par
-une application Streamlit de sept pages pour l'équipe rétention : liste d'appels priorisée, analyse
+une application Streamlit de huit pages, filtrable, pour l'équipe rétention : liste d'appels priorisée, analyse
 d'un client avec ses drivers et son levier, saisie manuelle tolérante aux inconnus, verbatim en
 démonstration. Un monitoring implémenté surveille la dérive des entrées et des prédictions, la
 performance sur les nouvelles réponses d'enquête, et déclenche le réentraînement sur seuil, volume ou
@@ -1488,7 +2286,7 @@ performance sur les nouvelles réponses d'enquête, et déclenche le réentraîn
 
 ## 2. L'application — choix de conception (énoncé § 4.8)
 
-`streamlit run app/app.py` · sept pages, adressables par `?page=` · toutes les valeurs sont lues dans
+`docker compose up` ou `streamlit run app/app.py` · huit pages, adressables par `?page=` · toutes les valeurs sont lues dans
 les artefacts du pipeline, rien n'est recopié.
 
 | Page | Pour qui | Ce qu'elle permet |
@@ -1522,6 +2320,22 @@ en moins d'une seconde pour les modèles linéaires et à arbres.
 `python -m src.writeup` · `python -m pytest tests -q`. Seed unique ; aucune clé dans le dépôt (`.env` ignoré,
 `.env.example` fourni) ; test à blanc depuis une copie vierge (phase 5 § 9).
 
+**Livraison par conteneur.** « Someone else should be able to re-run your pipeline » (énoncé § 7) suppose que cette
+personne parvienne d'abord à installer l'environnement — ce qui, avec quinze modèles et une contrainte `numpy < 2`,
+n'est pas acquis. Le dépôt embarque donc une image Docker :
+
+```bash
+docker compose up --build          # l'application sur http://localhost:8501
+```
+
+L'image de livraison contient le modèle entraîné, le jeu de données dérivé, les rapports et les figures : **aucune
+donnée brute ni clé n'est nécessaire pour voir l'outil**. Elle tourne sans privilèges et expose une sonde de santé.
+Un second étage, construit à la demande (`docker compose --profile pipeline run --rm pipeline`), ajoute le catalogue
+de modèles et rejoue tout le calcul depuis les cinq classeurs IBM, avec les mêmes versions épinglées — c'est la
+réponse la plus forte à l'exigence de reproductibilité, puisqu'elle fige l'environnement en même temps que le code.
+Les modèles de fondation (PyTorch, TabICL, TabPFN) restent hors image : ils la feraient passer de 0,8 à plus de 3 Go
+pour des résultats déjà calculés et lus dans `reports/fondation.json`.
+
 ## 4. Monitoring et réentraînement (énoncé § 4.9) — implémenté
 
 {section_mo}
@@ -1533,9 +2347,15 @@ en moins d'une seconde pour les modèles linéaires et à arbres.
 | Dérive des entrées | PSI par variable, mensuel, vs population d'entraînement | PSI > 0,20 sur une variable majeure (`Contract`, `Tenure`, `Monthly Charge`) |
 | Dérive des prédictions | PSI de P(Détracteur) ; part de Détracteurs prédits | PSI > 0,20 ou variation > 5 points sans cause métier connue |
 | Performance réelle | kappa et rappel Détracteur sur les **nouvelles réponses d'enquête** | chute > 0,05 de kappa ou > 10 points de rappel |
-| Équité | rappel Détracteur par tranche d'âge sur les nouvelles réponses | écart > 15 points |
+| Équité | rappel Détracteur par tranche d'âge sur le **cumul** des nouvelles réponses — **implémenté**, drapeau `alerte_equite` | écart > {cfg['criteres_succes']['ecart_equite_signalement']*100:.0f} points, le seuil de la phase 1 |
 | Volume de labels | nouvelles réponses reçues | réentraînement dès 500 nouveaux labels, au plus tard tous les 6 mois |
 | Calibration | ECE sur les nouvelles réponses | recalibrer (Platt) sur les vraies réponses de la population cible dès 300 labels |
+
+*Le seuil d'équité est **le même partout dans l'étude** — celui fixé à la phase 1. Une version
+antérieure de cette carte en annonçait 15 quand le critère de succès en annonçait 10 : deux seuils
+pour une même règle, donc aucune règle. L'écart n'est lisible qu'en **cumul** : sur 150 réponses par
+mois, un groupe d'âge compte trop peu de détracteurs pour qu'un rappel y soit interprétable, et le
+monitoring n'évalue donc un groupe qu'à partir de dix détracteurs observés.*
 
 Outil recommandé en production : Evidently (rapports HTML autonomes), cité par l'énoncé ; ici le PSI
 est implémenté directement pour rester sans dépendance.
@@ -1559,9 +2379,9 @@ dégrade, et personne ne voit pourquoi. Trois parades, par ordre de coût :
 
 {_decisions([
     ("Persistance d'un bloc : pipelines calibré, brut, de décision + métadonnées", "rejouable sans réentraînement ; l'application n'a aucune logique de préparation", "§ 1, `models/modele_final.joblib`"),
-    ("Streamlit, sept pages, contenu lu dans les artefacts", "interface pour un responsable rétention ; aucune valeur recopiée", "§ 2"),
+    ("Streamlit, huit pages filtrables, contenu lu dans les artefacts", "interface pour un responsable rétention ; aucune valeur recopiée ; les filtres croisés évitent de chercher dans 5 963 lignes", "§ 2"),
     ("Tolérance aux inconnus par le pipeline, pas par l'interface", "un seul endroit à tester", "§ 2, test dédié"),
-    ("Monitoring : PSI + performance sur nouvelles réponses + volume + échéance", "les quatre déclencheurs de l'énoncé", "§ 4"),
+    ("Monitoring : PSI + performance sur nouvelles réponses + volume + équité + échéance", "cinq déclencheurs, chacun avec sa règle et son état sur le mois simulé", "§ 4"),
     ("Groupe de contrôle recommandé", "seule façon de mesurer l'effet et d'éviter la boucle de rétroaction", "§ 5"),
 ])}
 """)
@@ -1589,8 +2409,8 @@ pour chaque client, les raisons de la prédiction et le levier à proposer ; une
 
 | | |
 |---|---|
-| NPS estimé de la base complète | **{arb['nps']['M3']:+.0f}** (secteur : +19 à +34) — contre **{arb['nps']['M1']:+.0f}** avec la grille de l'énoncé prise au pied de la lettre |
-| NPS des silencieux, estimé par le modèle | **{ns['nps_silencieux_predit']:+.0f}** (intervalle {ns['nps_silencieux_predit_ic95'][0]:+.0f} à {ns['nps_silencieux_predit_ic95'][1]:+.0f}) ; les répondants seuls donnent {ns['nps_repondants_observe']:+.0f} |
+| NPS **réel** de la base sous la grille retenue | **{arb['nps']['M3']:+.0f}** — connu ici parce que la satisfaction des 7 043 clients est dans le jeu de données ; ce n'est **pas** une sortie du modèle. Avec la grille de l'énoncé prise au pied de la lettre : **{arb['nps']['M1']:+.0f}** |
+| NPS des silencieux, **estimé par le modèle** | **{ns['nps_silencieux_predit']:+.0f}** (intervalle {ns['nps_silencieux_predit_ic95'][0]:+.0f} à {ns['nps_silencieux_predit_ic95'][1]:+.0f}). La vérité, connue ici seulement, est **{ns['nps_silencieux_vrai']:+.0f}** : l'estimateur **sous-estime de {abs(ns['nps_silencieux_predit'] - ns['nps_silencieux_vrai']):.0f} points** et l'intervalle ne couvre pas ce biais. Les répondants seuls donneraient {ns['nps_repondants_observe']:+.0f}. Ce chiffre se lit **en relatif** — classement des segments — pas en absolu |
 | Sur {pk['k']} appels, part de vrais détracteurs | **{pk['precision_at_k']:.0%}** contre {pk['taux_de_base']:.0%} au hasard — **×{pk['lift']:.1f}** |
 | Gain net supplémentaire par campagne | **{_eur(eco['gain_apporte_par_le_modele_eur'])}** à hypothèses de coût constantes (à valider) |
 | Détracteurs retrouvés | **{m['par_classe']['Detracteur']['rappel']:.0%}** — mais {eq['<30']['rappel_detracteur']:.0%} seulement chez les moins de 30 ans |
@@ -1636,8 +2456,9 @@ le modèle se dégradera en réapprenant ses propres effets.
 
 Elle n'estime pas l'effet d'un appel (aucune campagne dans les données). Ses verbatims clients sont
 synthétiques et le signal texte, démontré techniquement, n'est pas déployable sur cette base. Ses
-hypothèses économiques sont des paramètres à valider avec l'équipe rétention. TabPFN n'a pas pu être
-évalué (accès aux poids soumis à acceptation) ; TabICL l'a été.
+hypothèses économiques sont des paramètres à valider avec l'équipe rétention. TabPFN 2.5 n'a pas pu
+être évalué — sa licence PriorLabs demande un compte et une clé API — mais TabICL et TabPFN v2 l'ont
+été, sur des poids publics.
 
 ## Lire la suite
 
@@ -1651,8 +2472,32 @@ hypothèses économiques sont des paramètres à valider avec l'équipe rétenti
 def conformite(cfg, R):
     fo = _charger_json("fondation"); tx = _charger_json("texte"); mo = _charger_json("monitoring"); repro = _charger_json("reproductibilite")
     tabicl_ok = bool(fo and any(x["nom"] == "TabICL" and x["statut"] == "ok" for x in fo["modeles"]))
-    tabpfn_ok = bool(fo and any(x["nom"] == "TabPFN" and x["statut"] == "ok" for x in fo["modeles"]))
+    tabpfn_ok = bool(fo and any(x["nom"].startswith("TabPFN 2.5") and x["statut"] == "ok" for x in fo["modeles"]))
+    tabpfnv2_ok = bool(fo and any(x["nom"].startswith("TabPFN v2") and x["statut"] == "ok" for x in fo["modeles"]))
     src_txt = tx["source_verbatims"] if tx else "non exécuté"
+    # Part réellement rédigée par un modèle de langage, par opposition au repli par gabarit seedé.
+    # L'énoncé demande des verbatims « générés par LLM » : annoncer ✅ quand tout vient d'un gabarit
+    # serait faux, et annoncer ⚠️ quand une part vient d'un LLM serait injustement sévère. On chiffre.
+    _vp = RACINE / "data" / "processed" / "verbatims.parquet"
+    part_llm, n_llm = 0.0, 0
+    if _vp.exists():
+        try:
+            _v = pd.read_parquet(_vp, columns=["source"])
+            n_llm = int((_v["source"] != "gabarit_stochastique_seed").sum())
+            part_llm = n_llm / max(len(_v), 1)
+        except Exception:
+            pass
+    if part_llm >= 0.99:
+        verdict_44 = "✅"
+        detail_44 = f"7 043 verbatims rédigés par un modèle de langage ({src_txt})"
+    elif part_llm > 0:
+        verdict_44 = "⚠️ (mixte, part LLM chiffrée)"
+        detail_44 = (f"7 043 verbatims : **{n_llm} rédigés par un modèle de langage** ({part_llm:.0%}, agents Claude Code, "
+                     f"prompt versionné `prompts/verbatim_v1.txt`, textes commités), le reste par gabarit stochastique "
+                     f"seedé — la source de chaque texte est tracée dans la colonne `source`")
+    else:
+        verdict_44 = "⚠️ (gabarits seedés, pas d'appel LLM)"
+        detail_44 = f"7 043 verbatims, sources `{src_txt}` ; prompts versionnés ; chemin API prêt"
     L = [
         ("§ 2", "Prioriser les appels vers les Détracteurs prédits", "liste classée par P(Détracteur) calibrée, K réglable, export", "phase 5 § 3 ; app *Prioriser les appels*", "✅"),
         ("§ 2", "Drivers de détraction, individuels et par segment", "contributions par client ; drivers par segment ; leviers", "phase 5 § 6 ; app *Drivers et équité*, *Analyser un client*", "✅"),
@@ -1669,27 +2514,30 @@ def conformite(cfg, R):
         ("§ 4.2", "Déséquilibre des classes discuté explicitement", "double déséquilibre ; cinq stratégies comparées", "phase 3 § 4", "✅"),
         ("§ 4.3", "Features construites et justifiées ; fuites évitées", "justification variable par variable ; neuf dérivées ; auto-pay", "phase 3 § 3", "✅"),
         ("§ 4.3", "Features géographiques / démographiques", "testées en ablation, exclues par équité, coût chiffré", "phase 5 § 5.3", "✅"),
-        ("§ 4.4", "Verbatims synthétiques par LLM, conditionnés, bruités, reproductibles, commités", f"7 043 verbatims, source `{src_txt}` ; chemin API prêt ; prompt versionné", "phase 4 § 9 ; `data/processed/verbatims.parquet`", "✅ (générateur local seedé ; API sans clé)"),
+        ("§ 4.4", "Verbatims synthétiques par LLM, conditionnés, bruités, reproductibles, commités", detail_44, "phase 4 § 9 ; `data/processed/verbatims.parquet`", verdict_44),
         ("§ 4.4", "Combiner texte et tabulaire, expliquer ce que le texte apporte", "texte seul, fusion tardive, fusion précoce ; gain qualifié d'artificiel", "phase 4 § 9 ; app *Analyser un client*", "✅"),
         ("§ 4.5", "Baseline", "logistique multinomiale pondérée", "phase 4 § 3", "✅"),
+        ("§ 1", "Time box de deux semaines, gestion du périmètre plutôt que sur-ingénierie",
+         "périmètre arbitré et publié : ce qui est dedans, ce qui est dehors, et pourquoi (CORAL/CORN, enrichissement Census, MLflow, API payantes)", "phase 1 § 5.2", "✅"),
         ("§ 4.5", "Au moins deux familles justifiées (boosting, ordinal, ensembles calibrés, fondation)", "quinze modèles, sept familles ; XGBoost, LightGBM, CatBoost, mord, forêt, TabICL", "phase 4 § 3, § 8", "✅"),
         ("§ 4.5", "Métriques adaptées : macro-F1, balanced accuracy, kappa, rappel par classe, calibration, lift", "toutes, avec la raison de chacune", "phase 5 § 1–3", "✅"),
         ("§ 4.5", "Validation simulant l'écart répondants / silencieux", "S3 MNAR ; sélection sans regarder les silencieux", "phase 4 § 2, § 6", "✅"),
         ("§ 4.5", "Interprétabilité : importance / SHAP, drivers", "coefficients ou SHAP selon le modèle ; méthode unique app + étude", "phase 5 § 6", "✅"),
         ("§ 4.5", "Discussion fuites, biais, bruit, qualité, limites du label", "réparties et récapitulées", "phases 2, 3, 5 § 9", "✅"),
-        ("§ 4.5 bonus", "Modèle de fondation tabulaire (TabPFN-2.5, TabICL), avantages / limites / coût", f"TabICL {'évalué' if tabicl_ok else 'non évalué'} ; TabPFN {'évalué' if tabpfn_ok else 'indisponible (dépôt HF à accès contrôlé)'}", "phase 4 § 8", "✅" if tabicl_ok else "⚠️"),
+        ("§ 4.5 bonus", "Modèle de fondation tabulaire (TabPFN-2.5, TabICL), avantages / limites / coût", f"TabICL {'évalué' if tabicl_ok else 'non évalué'} ; TabPFN v2 {'évalué' if tabpfnv2_ok else 'non évalué'} ; TabPFN 2.5 {'évalué' if tabpfn_ok else 'indisponible — licence PriorLabs à accepter (compte + clé API), le dépôt de poids lui-même est public'} ; compromis coût/latence chiffré face au meilleur gradient boosting", "phase 4 § 8", "✅" if (tabicl_ok or tabpfnv2_ok) else "⚠️"),
         ("§ 4.6", "Drivers par segment ; actionnable vs non ; levier unique par Détracteur prédit ; corrélation ≠ causalité", "segments contrat / ancienneté / accès ; règle de levier implémentée", "phase 5 § 6", "✅"),
         ("§ 4.7", "Audit par sous-groupe démographique, rappel Détracteur", "genre, senior, marié, dépendants, âge, densité de zone ; rappel, précision, sélection", "phase 5 § 7", "✅"),
         ("§ 4.7", "Proxies d'attributs protégés ; gardé / supprimé / pourquoi", "audit de reconstruction (AUC) des attributs exclus", "phase 5 § 7.2", "✅"),
         ("§ 4.7", "Conséquence métier des choix d'équité, arbitrage explicite", "coût de l'exclusion chiffré ; mitigation par seuils chiffrée", "phase 5 § 5.3, § 7.3", "✅"),
         ("§ 4.7", "Points à escalader à CX / juridique", "liste explicite", "phase 5 § 7.4", "✅"),
         ("§ 4.8", "Persistance du modèle", "`models/modele_final.joblib`", "phase 6 § 1", "✅"),
-        ("§ 4.8", "Interface : saisie ou ID → classe + probabilités ; drivers ; verbatim (bonus) ; robuste aux inconnus ; choix expliqués", "Streamlit sept pages ; test de robustesse", "phase 6 § 2 ; `app/app.py`", "✅"),
+        ("§ 4.8", "Interface : saisie ou ID → classe + probabilités ; drivers ; verbatim (bonus) ; robuste aux inconnus ; choix expliqués", "Streamlit huit pages, filtres croisés sur toutes les pages ; test de robustesse", "phase 6 § 2 ; `app/app.py`", "✅"),
+        ("§ 4.8", "Utilisable par une équipe métier sans installation", "image Docker et `docker compose up` : l'application démarre seule, modèle et données embarqués, sans clé ni fichier brut", "README, `Dockerfile`, `docker-compose.yml`", "✅"),
         ("§ 4.9", "Monitoring : dérive des entrées, des prédictions, performance sur nouvelles réponses", "PSI, mois simulé, lots mensuels de nouvelles réponses", "phase 6 § 4", "✅" if mo else "⚠️"),
         ("§ 4.9", "Déclencheur de réentraînement (planning, seuil, volume de labels)", "les trois, implémentés", "phase 6 § 4", "✅" if mo else "⚠️"),
         ("§ 4.9", "Boucle de rétroaction actions ↔ données", "journalisation, groupe de contrôle, réentraînement sur non-contactés", "phase 6 § 5", "✅"),
         ("§ 6", "Code source ; notebook ; README + .env.example ; dataset dérivé ; verbatims + script ; artefact modèle ; captures ; write-up 3–6 pages", "tous présents", "dépôt ; `notebooks/` ; `livrable/`", "✅"),
-        ("§ 7", "Reproductible ; implémenté / approximatif / futur explicites ; usage d'IA déclaré ; pas de clés", "test à blanc " + ("réussi" if repro and repro.get("reproductible") else "à relancer") + " ; revue ; README", "phase 5 § 9 ; README", "✅"),
+        ("§ 7", "Reproductible ; implémenté / approximatif / futur explicites ; usage d'IA déclaré ; pas de clés", "test à blanc " + ("réussi" if repro and repro.get("reproductible") else "à relancer") + " ; environnement figé dans une image Docker (versions épinglées) ; revue ; README", "phase 5 § 9 ; README ; `Dockerfile`", "✅"),
     ]
     t = pd.DataFrame(L, columns=["Énoncé", "Exigence", "Réponse", "Où", "Statut"])
     _md("07_conformite_enonce.md", f"""
@@ -1703,14 +2551,14 @@ Operator ») ; une ligne par exigence ou bonus. ✅ traité · ⚠️ traité pa
 ## Ce qui est implémenté, approximatif, ou laissé en travail futur (énoncé § 7)
 
 **Implémenté** : tout le périmètre obligatoire (§ 4.1 à § 4.8), le monitoring (§ 4.9), les trois bonus
-(verbatims + fusion texte, drivers par segment, modèle de fondation via TabICL).
+(verbatims + fusion texte, drivers par segment, modèles de fondation via TabICL et TabPFN v2).
 
 **Approximatif, et dit comme tel** : les paramètres économiques (coût d'appel, valeur client, taux de
 succès) sont des placeholders ; la propension à répondre est simulée ; les verbatims viennent d'un
 générateur local seedé, pas d'un appel API (aucune clé disponible ; le chemin est prêt) ; le NPS des
 silencieux est estimé avec une composition par classe déformée.
 
-**Travail futur** : TabPFN-2.5 dès accès aux poids ; recalibration sur les vraies premières réponses ;
+**Travail futur** : TabPFN 2.5 dès acceptation de la licence PriorLabs ; recalibration sur les vraies premières réponses ;
 groupe de contrôle puis modèle d'uplift ; API de scoring pour le CRM ; enrichissement texte sur de vrais verbatims.
 """)
 

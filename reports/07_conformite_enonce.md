@@ -20,37 +20,39 @@ Operator ») ; une ligne par exigence ou bonus. ✅ traité · ⚠️ traité pa
 | § 4.2 | Déséquilibre des classes discuté explicitement | double déséquilibre ; cinq stratégies comparées | phase 3 § 4 | ✅ |
 | § 4.3 | Features construites et justifiées ; fuites évitées | justification variable par variable ; neuf dérivées ; auto-pay | phase 3 § 3 | ✅ |
 | § 4.3 | Features géographiques / démographiques | testées en ablation, exclues par équité, coût chiffré | phase 5 § 5.3 | ✅ |
-| § 4.4 | Verbatims synthétiques par LLM, conditionnés, bruités, reproductibles, commités | 7 043 verbatims, source `gabarit_stochastique_seed` ; chemin API prêt ; prompt versionné | phase 4 § 9 ; `data/processed/verbatims.parquet` | ✅ (générateur local seedé ; API sans clé) |
+| § 4.4 | Verbatims synthétiques par LLM, conditionnés, bruités, reproductibles, commités | 7 043 verbatims : **1033 rédigés par un modèle de langage** (15%, agents Claude Code, prompt versionné `prompts/verbatim_v1.txt`, textes commités), le reste par gabarit stochastique seedé — la source de chaque texte est tracée dans la colonne `source` | phase 4 § 9 ; `data/processed/verbatims.parquet` | ⚠️ (mixte, part LLM chiffrée) |
 | § 4.4 | Combiner texte et tabulaire, expliquer ce que le texte apporte | texte seul, fusion tardive, fusion précoce ; gain qualifié d'artificiel | phase 4 § 9 ; app *Analyser un client* | ✅ |
 | § 4.5 | Baseline | logistique multinomiale pondérée | phase 4 § 3 | ✅ |
+| § 1 | Time box de deux semaines, gestion du périmètre plutôt que sur-ingénierie | périmètre arbitré et publié : ce qui est dedans, ce qui est dehors, et pourquoi (CORAL/CORN, enrichissement Census, MLflow, API payantes) | phase 1 § 5.2 | ✅ |
 | § 4.5 | Au moins deux familles justifiées (boosting, ordinal, ensembles calibrés, fondation) | quinze modèles, sept familles ; XGBoost, LightGBM, CatBoost, mord, forêt, TabICL | phase 4 § 3, § 8 | ✅ |
 | § 4.5 | Métriques adaptées : macro-F1, balanced accuracy, kappa, rappel par classe, calibration, lift | toutes, avec la raison de chacune | phase 5 § 1–3 | ✅ |
 | § 4.5 | Validation simulant l'écart répondants / silencieux | S3 MNAR ; sélection sans regarder les silencieux | phase 4 § 2, § 6 | ✅ |
 | § 4.5 | Interprétabilité : importance / SHAP, drivers | coefficients ou SHAP selon le modèle ; méthode unique app + étude | phase 5 § 6 | ✅ |
 | § 4.5 | Discussion fuites, biais, bruit, qualité, limites du label | réparties et récapitulées | phases 2, 3, 5 § 9 | ✅ |
-| § 4.5 bonus | Modèle de fondation tabulaire (TabPFN-2.5, TabICL), avantages / limites / coût | TabICL évalué ; TabPFN indisponible (dépôt HF à accès contrôlé) | phase 4 § 8 | ✅ |
+| § 4.5 bonus | Modèle de fondation tabulaire (TabPFN-2.5, TabICL), avantages / limites / coût | TabICL évalué ; TabPFN v2 non évalué ; TabPFN 2.5 indisponible — licence PriorLabs à accepter (compte + clé API), le dépôt de poids lui-même est public ; compromis coût/latence chiffré face au meilleur gradient boosting | phase 4 § 8 | ✅ |
 | § 4.6 | Drivers par segment ; actionnable vs non ; levier unique par Détracteur prédit ; corrélation ≠ causalité | segments contrat / ancienneté / accès ; règle de levier implémentée | phase 5 § 6 | ✅ |
 | § 4.7 | Audit par sous-groupe démographique, rappel Détracteur | genre, senior, marié, dépendants, âge, densité de zone ; rappel, précision, sélection | phase 5 § 7 | ✅ |
 | § 4.7 | Proxies d'attributs protégés ; gardé / supprimé / pourquoi | audit de reconstruction (AUC) des attributs exclus | phase 5 § 7.2 | ✅ |
 | § 4.7 | Conséquence métier des choix d'équité, arbitrage explicite | coût de l'exclusion chiffré ; mitigation par seuils chiffrée | phase 5 § 5.3, § 7.3 | ✅ |
 | § 4.7 | Points à escalader à CX / juridique | liste explicite | phase 5 § 7.4 | ✅ |
 | § 4.8 | Persistance du modèle | `models/modele_final.joblib` | phase 6 § 1 | ✅ |
-| § 4.8 | Interface : saisie ou ID → classe + probabilités ; drivers ; verbatim (bonus) ; robuste aux inconnus ; choix expliqués | Streamlit sept pages ; test de robustesse | phase 6 § 2 ; `app/app.py` | ✅ |
+| § 4.8 | Interface : saisie ou ID → classe + probabilités ; drivers ; verbatim (bonus) ; robuste aux inconnus ; choix expliqués | Streamlit huit pages, filtres croisés sur toutes les pages ; test de robustesse | phase 6 § 2 ; `app/app.py` | ✅ |
+| § 4.8 | Utilisable par une équipe métier sans installation | image Docker et `docker compose up` : l'application démarre seule, modèle et données embarqués, sans clé ni fichier brut | README, `Dockerfile`, `docker-compose.yml` | ✅ |
 | § 4.9 | Monitoring : dérive des entrées, des prédictions, performance sur nouvelles réponses | PSI, mois simulé, lots mensuels de nouvelles réponses | phase 6 § 4 | ✅ |
 | § 4.9 | Déclencheur de réentraînement (planning, seuil, volume de labels) | les trois, implémentés | phase 6 § 4 | ✅ |
 | § 4.9 | Boucle de rétroaction actions ↔ données | journalisation, groupe de contrôle, réentraînement sur non-contactés | phase 6 § 5 | ✅ |
 | § 6 | Code source ; notebook ; README + .env.example ; dataset dérivé ; verbatims + script ; artefact modèle ; captures ; write-up 3–6 pages | tous présents | dépôt ; `notebooks/` ; `livrable/` | ✅ |
-| § 7 | Reproductible ; implémenté / approximatif / futur explicites ; usage d'IA déclaré ; pas de clés | test à blanc réussi ; revue ; README | phase 5 § 9 ; README | ✅ |
+| § 7 | Reproductible ; implémenté / approximatif / futur explicites ; usage d'IA déclaré ; pas de clés | test à blanc réussi ; environnement figé dans une image Docker (versions épinglées) ; revue ; README | phase 5 § 9 ; README ; `Dockerfile` | ✅ |
 
 ## Ce qui est implémenté, approximatif, ou laissé en travail futur (énoncé § 7)
 
 **Implémenté** : tout le périmètre obligatoire (§ 4.1 à § 4.8), le monitoring (§ 4.9), les trois bonus
-(verbatims + fusion texte, drivers par segment, modèle de fondation via TabICL).
+(verbatims + fusion texte, drivers par segment, modèles de fondation via TabICL et TabPFN v2).
 
 **Approximatif, et dit comme tel** : les paramètres économiques (coût d'appel, valeur client, taux de
 succès) sont des placeholders ; la propension à répondre est simulée ; les verbatims viennent d'un
 générateur local seedé, pas d'un appel API (aucune clé disponible ; le chemin est prêt) ; le NPS des
 silencieux est estimé avec une composition par classe déformée.
 
-**Travail futur** : TabPFN-2.5 dès accès aux poids ; recalibration sur les vraies premières réponses ;
+**Travail futur** : TabPFN 2.5 dès acceptation de la licence PriorLabs ; recalibration sur les vraies premières réponses ;
 groupe de contrôle puis modèle d'uplift ; API de scoring pour le CRM ; enrichissement texte sur de vrais verbatims.

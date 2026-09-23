@@ -1,5 +1,10 @@
 {
-  "source_verbatims": "gabarit_stochastique_seed",
+  "source_verbatims": "gabarit_stochastique_seed (6010) + claude_code_agent (1033)",
+  "sources_detail": {
+    "gabarit_stochastique_seed": 6010,
+    "claude_code_agent": 1033
+  },
+  "modele_llm": "claude-opus-5",
   "n_verbatims": 7043,
   "concordance_tonalite_classe": 0.8322,
   "plafond_theorique": 0.8333,
@@ -10,37 +15,37 @@
     "rappel_passif": 0.4815
   },
   "texte_seul": {
-    "kappa": 0.3814,
-    "macro_f1": 0.4813,
-    "rappel_detracteur": 0.6223,
-    "rappel_passif": 0.3154
+    "kappa": 0.3901,
+    "macro_f1": 0.4302,
+    "rappel_detracteur": 0.5328,
+    "rappel_passif": 0.2201
   },
   "fusion_tardive": {
-    "poids_texte": 0.2,
+    "poids_texte": 0.30000000000000004,
     "grille_poids_cv": {
       "0.0": 0.6282,
-      "0.1": 0.632,
-      "0.2": 0.6337,
-      "0.3": 0.628,
-      "0.4": 0.6032,
-      "0.5": 0.5752,
-      "0.6": 0.4943,
-      "0.7": 0.433,
-      "0.8": 0.3272,
-      "0.9": 0.2201,
-      "1.0": 0.1606
+      "0.1": 0.6324,
+      "0.2": 0.6336,
+      "0.3": 0.6384,
+      "0.4": 0.6349,
+      "0.5": 0.6229,
+      "0.6": 0.5641,
+      "0.7": 0.5013,
+      "0.8": 0.3742,
+      "0.9": 0.2821,
+      "1.0": 0.2071
     },
-    "kappa": 0.3865,
-    "macro_f1": 0.3794,
-    "rappel_detracteur": 0.7867,
+    "kappa": 0.3911,
+    "macro_f1": 0.3795,
+    "rappel_detracteur": 0.7784,
     "rappel_passif": 0.0
   },
   "fusion_precoce_svd20": {
-    "kappa": 0.4169,
-    "macro_f1": 0.5134,
+    "kappa": 0.4117,
+    "macro_f1": 0.5099,
     "rappel_detracteur": 0.7996,
-    "rappel_passif": 0.3162
+    "rappel_passif": 0.3023
   },
-  "gain_kappa_fusion_tardive": 0.002,
+  "gain_kappa_fusion_tardive": 0.0067,
   "lecture": "Le texte encode la classe par construction (tonalité tirée de la classe, bruit 25 %). Tout gain est un artefact du protocole de génération : il valide la chaîne, pas la valeur de vrais verbatims."
 }

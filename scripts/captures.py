@@ -4,7 +4,7 @@
 
 Selenium + Chrome headless : on attend que le contenu soit réellement rendu (le rendu Streamlit
 passe par un websocket, qu'une capture « à froid » ne voit pas), puis on capture la page entière.
-Produit reports/captures/NN_<page>.png (sept pages).
+Produit reports/captures/NN_<page>.png (huit pages).
 """
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 RACINE = Path(__file__).resolve().parent.parent
 SORTIE = RACINE / "reports" / "captures"
-PAGES = ["Synthèse", "Prioriser les appels", "Analyser un client", "Données et cible",
-         "Modèles et performance", "Drivers et équité", "Suivi et méthode"]
+PAGES = ["Synthèse", "Explorer les clients", "Prioriser les appels", "Analyser un client",
+         "Données et cible", "Modèles et performance", "Drivers et équité", "Suivi et méthode"]
 URL = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8501"
 
 

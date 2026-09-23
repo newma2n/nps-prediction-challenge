@@ -380,7 +380,9 @@
       "min_nouveaux_labels": 500,
       "chute_kappa": 0.05,
       "chute_rappel_detracteur": 0.1,
-      "echeance_max_mois": 6
+      "echeance_max_mois": 6,
+      "ecart_equite_age": 0.1,
+      "min_detracteurs_par_groupe": 10
     },
     "lots": [
       {
@@ -391,6 +393,23 @@
         "rappel_detracteur_lot": 0.5833,
         "kappa_cumul": 0.5103,
         "rappel_detracteur_cumul": 0.5833,
+        "rappel_detracteur_par_age_cumul": {
+          "45-60": {
+            "detracteurs": 12,
+            "rappel": 0.5
+          },
+          "60+": {
+            "detracteurs": 16,
+            "rappel": 0.625
+          },
+          "<30": {
+            "detracteurs": 11,
+            "rappel": 0.6364
+          }
+        },
+        "ecart_equite_age_cumul": 0.1364,
+        "groupes_suivis": 3,
+        "alerte_equite": true,
         "chute_performance": false,
         "volume_atteint": false
       },
@@ -402,6 +421,27 @@
         "rappel_detracteur_lot": 0.6222,
         "kappa_cumul": 0.5339,
         "rappel_detracteur_cumul": 0.6022,
+        "rappel_detracteur_par_age_cumul": {
+          "30-45": {
+            "detracteurs": 18,
+            "rappel": 0.4444
+          },
+          "45-60": {
+            "detracteurs": 23,
+            "rappel": 0.6522
+          },
+          "60+": {
+            "detracteurs": 35,
+            "rappel": 0.6286
+          },
+          "<30": {
+            "detracteurs": 17,
+            "rappel": 0.6471
+          }
+        },
+        "ecart_equite_age_cumul": 0.2078,
+        "groupes_suivis": 4,
+        "alerte_equite": true,
         "chute_performance": false,
         "volume_atteint": false
       },
@@ -413,6 +453,27 @@
         "rappel_detracteur_lot": 0.5952,
         "kappa_cumul": 0.5306,
         "rappel_detracteur_cumul": 0.6,
+        "rappel_detracteur_par_age_cumul": {
+          "30-45": {
+            "detracteurs": 31,
+            "rappel": 0.5806
+          },
+          "45-60": {
+            "detracteurs": 28,
+            "rappel": 0.6429
+          },
+          "60+": {
+            "detracteurs": 49,
+            "rappel": 0.6327
+          },
+          "<30": {
+            "detracteurs": 27,
+            "rappel": 0.5185
+          }
+        },
+        "ecart_equite_age_cumul": 0.1244,
+        "groupes_suivis": 4,
+        "alerte_equite": true,
         "chute_performance": false,
         "volume_atteint": false
       },
@@ -424,6 +485,27 @@
         "rappel_detracteur_lot": 0.6415,
         "kappa_cumul": 0.5489,
         "rappel_detracteur_cumul": 0.6117,
+        "rappel_detracteur_par_age_cumul": {
+          "30-45": {
+            "detracteurs": 47,
+            "rappel": 0.617
+          },
+          "45-60": {
+            "detracteurs": 39,
+            "rappel": 0.6154
+          },
+          "60+": {
+            "detracteurs": 69,
+            "rappel": 0.6667
+          },
+          "<30": {
+            "detracteurs": 33,
+            "rappel": 0.4848
+          }
+        },
+        "ecart_equite_age_cumul": 0.1819,
+        "groupes_suivis": 4,
+        "alerte_equite": true,
         "chute_performance": false,
         "volume_atteint": true
       },
@@ -435,6 +517,27 @@
         "rappel_detracteur_lot": 0.4762,
         "kappa_cumul": 0.5302,
         "rappel_detracteur_cumul": 0.587,
+        "rappel_detracteur_par_age_cumul": {
+          "30-45": {
+            "detracteurs": 61,
+            "rappel": 0.5902
+          },
+          "45-60": {
+            "detracteurs": 50,
+            "rappel": 0.6
+          },
+          "60+": {
+            "detracteurs": 78,
+            "rappel": 0.641
+          },
+          "<30": {
+            "detracteurs": 41,
+            "rappel": 0.4634
+          }
+        },
+        "ecart_equite_age_cumul": 0.1776,
+        "groupes_suivis": 4,
+        "alerte_equite": true,
         "chute_performance": false,
         "volume_atteint": true
       },
@@ -446,12 +549,63 @@
         "rappel_detracteur_lot": 0.6087,
         "kappa_cumul": 0.5129,
         "rappel_detracteur_cumul": 0.5906,
+        "rappel_detracteur_par_age_cumul": {
+          "30-45": {
+            "detracteurs": 76,
+            "rappel": 0.5526
+          },
+          "45-60": {
+            "detracteurs": 61,
+            "rappel": 0.623
+          },
+          "60+": {
+            "detracteurs": 90,
+            "rappel": 0.6444
+          },
+          "<30": {
+            "detracteurs": 49,
+            "rappel": 0.5102
+          }
+        },
+        "ecart_equite_age_cumul": 0.1342,
+        "groupes_suivis": 4,
+        "alerte_equite": true,
         "chute_performance": false,
         "volume_atteint": true
       }
     ],
     "premier_mois_volume_atteint": 4,
     "chute_detectee": false,
+    "premier_mois_alerte_equite": 1,
+    "alerte_equite_detectee": true,
+    "note_equite": "le rappel Détracteur est recalculé par tranche d'âge sur les réponses cumulées ; une alerte est levée au-delà de 10% d'écart entre le groupe le mieux et le moins bien servi. Un groupe comptant moins de 10 détracteurs n'est pas évalué : le rappel y serait trop bruité pour décider.",
     "note": "réponses tirées parmi les silencieux selon la propension S3 (les extrêmes répondent plus) : la performance sur les nouveaux répondants est donc optimiste par rapport à la base — exactement le biais que le monitoring réel subira"
-  }
+  },
+  "declencheurs_reentrainement": [
+    {
+      "declencheur": "dérive des entrées",
+      "regle": "PSI > 0.2 sur au moins une variable du modèle",
+      "etat_mois_simule": true
+    },
+    {
+      "declencheur": "chute de performance",
+      "regle": "kappa cumulé < référence − 0,05 ou rappel Détracteur < référence − 0,10",
+      "etat_mois_simule": false
+    },
+    {
+      "declencheur": "volume de nouveaux labels",
+      "regle": "500 nouvelles réponses d'enquête cumulées",
+      "etat_mois_simule": true
+    },
+    {
+      "declencheur": "équité",
+      "regle": "écart de rappel Détracteur entre tranches d'âge > 10%",
+      "etat_mois_simule": true
+    },
+    {
+      "declencheur": "échéance",
+      "regle": "réentraînement au plus tard tous les 6 mois",
+      "etat_mois_simule": true
+    }
+  ]
 }

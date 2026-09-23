@@ -1,0 +1,30 @@
+# Ce qui ne doit jamais entrer dans l'image.
+.git
+.gitignore
+.env
+.venv
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+catboost_info/
+
+# Données brutes : non versionnées, montées depuis l'hôte pour le profil « pipeline ».
+data/raw/
+
+# Lots de verbatims intermédiaires : volumineux et inutiles à l'exécution.
+data/interim/
+
+# Captures d'écran de l'application : c'est l'application elle-même qu'on livre.
+reports/captures/
+
+# Outils de développement
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+Dockerfile
+docker-compose.yml

@@ -85,6 +85,35 @@ def contributions_detracteur(pipe, X: pd.DataFrame, seed: int = 42, max_lignes: 
     return pd.DataFrame(expl(Xs2).values, columns=noms, index=X.index[idx][:n2]), libelle_methode(genre)
 
 
+# Blocs métier regroupés avant tout classement de drivers : plusieurs colonnes décrivent la même
+# réalité et leurs coefficients se compensent, ce qui produisait des signes absurdes (« avoir
+# parrainé augmente le risque »). Partagé avec `run.py`, qui s'en sert pour calculer le sens.
+BLOCS_DRIVERS = {
+    "Parrainage": ["Number of Referrals", "a_parraine", "Referred a Friend"],
+    "Ancienneté": ["Tenure in Months", "tranche_anciennete"],
+    "Facture mensuelle": ["Monthly Charge", "charge_par_service", "revenu_par_mois"],
+}
+
+
+def agreger_par_variable(C: pd.DataFrame, cat: list[str], blocs: dict | None = None) -> pd.DataFrame:
+    """Somme les contributions des colonnes one-hot d'une même variable d'origine.
+
+    Pourquoi : `OneHotEncoder` sans `drop` crée une colonne par modalité, et la logistique
+    répartit l'effet entre elles. Lire `Online Security_No` et `Online Security_Yes` comme deux
+    variables de signe opposé n'a pas de sens : ce sont les deux faces d'une seule. On agrège donc
+    avant tout classement d'importance, et on regroupe aussi les blocs métier redondants
+    (parrainage = `Number of Referrals` + `a_parraine`, engagement = `Contract`).
+    """
+    blocs = blocs or BLOCS_DRIVERS
+    origine = {}
+    for col in C.columns:
+        base = next((c for c in cat if col.startswith(c + "_")), col)
+        base = next((nom for nom, membres in blocs.items() if base in membres), base)
+        origine[col] = base
+    # transposee puis groupby sur l'index : `groupby(axis=1)` est deprecie depuis pandas 2.1
+    return C.T.groupby(origine).sum().T
+
+
 def libelle_variable(nom: str, cat: list[str]) -> str:
     """`Contract_Month-to-Month` -> `Contract = Month-to-Month`."""
     for c in cat:

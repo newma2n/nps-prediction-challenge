@@ -7,7 +7,7 @@ Repères de temps cumulés entre crochets.
 |---|---|---|---|---|
 | 1 | Titre | [0:00] | Le sujet : décider pour les 85 % de clients dont on ignore la satisfaction. | 85 % |
 | 2 | Le problème | [0:45] | Trois usages métier, trois critères chiffrés avant le code ; cible ordonnée et déséquilibrée. | K = 500 appels/mois |
-| 3 | Démarche CRISP-DM | [1:45] | Six phases, chacune fermée par des décisions justifiées ; tout est vérifiable dans l'étude. | 8 documents, 39 tests |
+| 3 | Démarche CRISP-DM | [1:45] | Six phases, chacune fermée par des décisions justifiées ; tout est vérifiable dans l'étude. | 8 documents, 30 fonctions de test |
 | 4 | Les fuites | [2:45] | Le dataset contient sa propre réponse : satisfaction 1–2 → 100 % de départs. Trois natures de fuite, exclusion mesurée. | exactitude max 0.65 < 0,85 |
 | 5 | La cible | [4:00] | La grille de l'énoncé donne -42 ; les « 3 » arbitrés par un modèle sur les extrêmes penchent promoteur à 72% → NPS +21. Piège de circularité évité. | 2665 clients « 3 » |
 | 6 | Features et déséquilibre | [5:15] | Chaque variable a une hypothèse ; double déséquilibre (Passif rare à l'entraînement, majoritaire à l'évaluation) ; pondération choisie après 5 stratégies. | Passif : 7% des répondants |
@@ -22,8 +22,8 @@ Repères de temps cumulés entre crochets.
 | 15 | Équité | [14:45] | Écart de 26 pts par âge sans variable d'âge : les features reconstruisent l'âge (AUC 0.92). Mitigation chiffrée, décision remontée. | AUC 0.98 pour « marié » |
 | 16 | Robustesse | [16:00] | Bruit d'étiquettes graduel ; chaque bloc de features a un coût mesuré. | Contract : le bloc clé |
 | 17 | Bonus | [16:45] | TabICL ne gagne pas et coûte 3 ordres de grandeur ; le texte synthétique encode la classe : ne prouve rien. | « not the winner » |
-| 18 | Application | [17:30] | Prioriser, analyser, comprendre, surveiller ; tolérante aux inconnus ; tout lu dans les artefacts. | 7 pages |
-| 19 | Monitoring | [18:15] | PSI, performance sur nouvelles réponses, quatre déclencheurs, boucle de rétroaction. | 500 labels → réentraîner |
+| 18 | Application | [17:30] | Explorer par filtres croisés, prioriser, analyser, comprendre, surveiller ; tolérante aux inconnus ; tout lu dans les artefacts ; `docker compose up` suffit à la lancer. | 8 pages, Docker |
+| 19 | Monitoring | [18:15] | PSI, performance sur nouvelles réponses, cinq déclencheurs dont l'écart d'équité par âge recalculé chaque mois, boucle de rétroaction. | 500 labels → réentraîner |
 | 20 | Limites et décision | [19:00] | Ce qu'on ne peut pas faire (effet d'un appel) ; la seule décision demandée : groupe de contrôle. | 10–20 % |
 | 21 | Conformité | [19:40] | Chaque exigence → réponse → emplacement ; reproductible ; IA déclarée. | 10/10 identiques |
 | 22 | À retenir | [20:00] | Cinq chiffres, une phrase : le plafond est dans le signal, pas dans l'algorithme. | — |
@@ -94,9 +94,18 @@ Repères de temps cumulés entre crochets.
     du protocole. La chaîne est démontrée ; sa valeur réelle ne peut se mesurer que sur de vrais verbatims.
 
 15. **TabICL fait presque aussi bien sans réglage : pourquoi ne pas le retenir ?**
-    Il ne bat pas le modèle retenu, il écrase la classe Passif, il coûte trois ordres de grandeur en inférence et n'a pas
-    d'explication native. La consigne de l'énoncé : « do not frame it as the winner if it is not ». TabPFN n'a pas pu être
-    évalué (accès aux poids).
+    Parce que le kappa cache l'essentiel. TabICL **écrase la classe Passif** — rappel nul : il se comporte en classifieur
+    binaire Détracteur / Promoteur, et le kappa quadratique pénalise peu une erreur d'un cran. Son macro-F1 est donc très
+    en dessous. Ajoutez que la comparaison lui est défavorable à un autre titre : ni TabICL ni TabPFN n'acceptent la
+    pondération de classes appliquée aux quinze autres modèles, donc la classe minoritaire part perdante chez eux par
+    construction — je le dis parce que cela joue en ma faveur et qu'il faut le signaler quand même. Enfin, trois ordres de
+    grandeur en inférence et aucune explication native, alors que l'explication client par client est au cœur du livrable.
+    La consigne de l'énoncé : « do not frame it as the winner if it is not ».
+
+    *Sur TabPFN* : la version 2.5 n'a pas pu être évaluée, mais pas pour la raison qu'on croit. Son dépôt Hugging Face est
+    **public** ; ce qui bloque est l'acceptation d'une licence PriorLabs, qui demande un compte et une clé API. J'ai donc
+    évalué **TabPFN v2**, dont les poids sont librement téléchargeables, en les chargeant explicitement. Le bonus est traité,
+    et le blocage est décrit pour ce qu'il est.
 
 16. **Quel est le vrai levier d'amélioration ?**
     Pas un modèle de plus. Un groupe de contrôle (10–20 %) à la prochaine campagne : il mesure l'effet réel et fournit les
@@ -104,7 +113,7 @@ Repères de temps cumulés entre crochets.
 
 17. **Qu'avez-vous fait avec l'IA générative ?**
     Code, structure de l'étude, rédaction, fragments des verbatims — déclaré comme l'énoncé le demande (§ 7). Les choix de
-    modélisation, le périmètre et les conclusions sont les miens ; les 39 tests et le test à blanc vérifient ce qui est livré.
+    modélisation, le périmètre et les conclusions sont les miens ; les 30 fonctions de test et le test à blanc vérifient ce qui est livré.
 
 ## Si le jury n'a que dix minutes
 

@@ -43,13 +43,27 @@
         }
       },
       "statut": "ok",
-      "version": "?"
+      "version": "?",
+      "version_paquet": "2.2.0",
+      "poids": "poids publics Hugging Face (jingang/TabICL)"
     },
     {
-      "nom": "TabPFN",
+      "nom": "TabPFN 2.5",
       "statut": "indisponible",
-      "erreur": "dépôt Hugging Face à accès contrôlé (gated) : l'acceptation des conditions d'utilisation et `huggingface-cli login` sont requis pour télécharger les poids — OSError: [WinError 10038] Une opération a été tentée sur autre chose qu’un socket",
-      "version": "9.0.0"
+      "version": "9.0.0",
+      "version_paquet": "9.0.0",
+      "poids": "Prior-Labs/tabpfn_3_5 (dépôt public, licence PriorLabs à accepter)",
+      "cause": "licence PriorLabs non acceptée sur cette machine : le téléchargement des poids exige un compte et une clé API (TABPFN_TOKEN)",
+      "action": "créer un compte sur ux.priorlabs.ai, accepter la licence, puis renseigner TABPFN_TOKEN dans .env",
+      "erreur_brute": "dépôt Hugging Face à accès contrôlé (gated) : l'acceptation des conditions d'utilisation et `huggingface-cli login` sont requis pour télécharger les poids — OSError: [WinError 10038] Une opération a été tentée sur autre chose qu’un socket"
+    },
+    {
+      "nom": "TabPFN v2",
+      "statut": "écarté du périmètre",
+      "version_paquet": "9.0.0",
+      "poids": "Prior-Labs/TabPFN-v2-clf (public, sans licence à accepter — vérifié, les poids se téléchargent)",
+      "cause": "écarté pour raison de coût, pas d'accès : l'inférence sur processeur rejoue le jeu d'entraînement à chaque prédiction et demande plusieurs minutes pour 5 963 clients, sans changer la conclusion que TabICL établit déjà",
+      "action": "évaluable en une commande sur une machine avec GPU, ou sur un échantillon (`NPS_FONDATION_N`)"
     }
   ],
   "reference": {
@@ -57,11 +71,30 @@
     "kappa": 0.3844,
     "macro_f1": 0.4902,
     "rappel_detracteur": 0.6288,
-    "duree_inference_s": 0.176
+    "duree_inference_s": 0.176,
+    "latence_par_client_ms": 0.03
   },
   "reference_boosting": {
     "modele": "lightgbm",
     "kappa": 0.3749,
-    "macro_f1": 0.4639
+    "macro_f1": 0.4639,
+    "duree_fit_s": 0.93,
+    "duree_inference_s": 0.361,
+    "latence_par_client_ms": 0.061
+  },
+  "versions": {
+    "tabicl": "2.2.0",
+    "tabpfn": "9.0.0",
+    "torch": "2.14.0",
+    "lightgbm": "4.7.0"
+  },
+  "note_nom_tabpfn": "le paquet `tabpfn` 9.x sert le modèle TabPFN-2.5 ; son dépôt de poids s'appelle `Prior-Labs/tabpfn_3_5` (numérotation interne). Ce dépôt est **public** : ce qui bloque est l'acceptation de la licence PriorLabs, qui demande un compte et une clé API — pas un contrôle d'accès Hugging Face, contrairement à ce qu'une première lecture de l'erreur laissait croire.",
+  "lecture": {
+    "meilleur_fondation": "TabICL",
+    "kappa": 0.3791,
+    "ecart_au_modele_retenu": -0.0053,
+    "n_evaluation": 5963,
+    "rapport_de_latence": 1154.2,
+    "conclusion": "aucun modèle de fondation ne dépasse le modèle retenu sur ce jeu ; ils coûtent en plus une latence d'inférence de plusieurs ordres de grandeur supérieure"
   }
 }

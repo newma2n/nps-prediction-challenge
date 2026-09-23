@@ -1,0 +1,10 @@
+# Configuration de l'application déployée (Streamlit Community Cloud et conteneur).
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
+primaryColor = "#2c7fb8"

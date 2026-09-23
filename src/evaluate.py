@@ -139,6 +139,28 @@ def valeur_economique(res_k: dict, cfg: dict) -> dict:
             "roi": round((gain - cout) / cout, 2) if cout else 0.0}
 
 
+def bruiter_ordinal(y, taux: float, rng, part_adjacente: float = 0.8, poids=None) -> np.ndarray:
+    """Bruit d'étiquettes **ordinal** (§ 4.1 « adding realistic noise »).
+
+    Un vrai bruit de NPS n'est pas uniforme : un Promoteur mal mesuré devient Passif bien plus
+    souvent que Détracteur. On bascule donc vers une classe **adjacente** dans 80 % des cas et
+    vers la classe opposée dans 20 %. `poids` (facultatif) permet de bruiter davantage les clients
+    ambigus — ceux dont la satisfaction déclarée vaut 3."""
+    y = np.asarray(y).astype(str).copy()
+    if taux <= 0:
+        return y
+    idx = {c: i for i, c in enumerate(ORDRE)}
+    p = np.ones(len(y)) if poids is None else np.asarray(poids, dtype=float)
+    p = p / p.sum() * len(y) * taux
+    touche = rng.random(len(y)) < np.clip(p, 0, 1)
+    for i in np.flatnonzero(touche):
+        k = idx[y[i]]
+        voisins = [ORDRE[j] for j in (k - 1, k + 1) if 0 <= j < 3]
+        opposes = [c for c in ORDRE if c != y[i] and c not in voisins]
+        y[i] = rng.choice(voisins) if (not opposes or rng.random() < part_adjacente) else rng.choice(opposes)
+    return y
+
+
 def nps_de(labels) -> float:
     l = pd.Series(np.asarray(labels).astype(str))
     return round(float(((l == "Promoteur").mean() - (l == "Detracteur").mean()) * 100), 1)
@@ -158,6 +180,56 @@ def nps_simule(y_vrai_sil, pred_sil, y_rep, pred_tous, seed: int, n_boot: int = 
             "nps_base_complete_predit": nps_de(pred_tous),
             "part_classes_silencieux_predit": pd.Series(pred_sil).value_counts(normalize=True).reindex(ORDRE).fillna(0).round(4).to_dict(),
             "part_classes_silencieux_vrai": pd.Series(np.asarray(y_vrai_sil).astype(str)).value_counts(normalize=True).reindex(ORDRE).fillna(0).round(4).to_dict()}
+
+
+def quantification(y_rep, pred_cv_rep, proba_cv_rep, pred_sil, proba_sil, seed: int, n_boot: int = 300) -> dict:
+    """Estimer la composition par classe des silencieux — le problème de *quantification* (Forman
+    2005/2008 ; González et al. 2017). Quatre estimateurs, du plus naïf au plus corrigé :
+
+      CC    Classify & Count : part de chaque classe prédite (ce que fait `nps_simule`)
+      PCC   Probabilistic CC : moyenne des probabilités prédites
+      ACC   Adjusted CC : inverse la matrice de confusion P(prédit | vrai) estimée par validation
+            croisée sur les répondants — exact sous décalage d'a priori pur (label shift)
+      PACC  Probabilistic ACC : idem avec les probabilités moyennes conditionnelles
+
+    Sous MNAR, la matrice de confusion des répondants ne se transfère pas aux silencieux (les
+    répondants d'une classe sont plus « extrêmes » que les silencieux de la même classe) : on
+    mesure ici ce que chaque estimateur vaut, on ne suppose pas."""
+    y_rep = np.asarray(y_rep).astype(str); pred_cv_rep = np.asarray(pred_cv_rep).astype(str); pred_sil = np.asarray(pred_sil).astype(str)
+    proba_cv_rep = np.asarray(proba_cv_rep, dtype=float); proba_sil = np.asarray(proba_sil, dtype=float)
+    rng = np.random.default_rng(seed)
+
+    def _nps(p): return round(float((p[2] - p[0]) * 100), 1)
+    def _proj(p):
+        p = np.clip(np.asarray(p, dtype=float), 0, None); s = p.sum()
+        return p / s if s > 0 else np.ones(3) / 3
+
+    C = np.array([[np.mean(pred_cv_rep[y_rep == i] == j) if (y_rep == i).any() else 0.0 for j in ORDRE] for i in ORDRE])
+    Cp = np.array([proba_cv_rep[y_rep == i].mean(0) if (y_rep == i).any() else np.ones(3) / 3 for i in ORDRE])
+    p_cc = np.array([(pred_sil == c).mean() for c in ORDRE])
+    p_pcc = proba_sil.mean(0)
+    def _acc(p_obs):
+        try:
+            return _proj(np.linalg.solve(C.T, p_obs))
+        except np.linalg.LinAlgError:
+            return p_obs
+    def _pacc(p_obs):
+        try:
+            return _proj(np.linalg.solve(Cp.T, p_obs))
+        except np.linalg.LinAlgError:
+            return p_obs
+    est = {"CC": p_cc, "PCC": p_pcc, "ACC": _acc(p_cc), "PACC": _pacc(p_pcc)}
+    # Intervalles bootstrap (rééchantillonnage des silencieux) pour CC et ACC
+    boots = {"CC": [], "ACC": []}
+    n = len(pred_sil)
+    for _ in range(n_boot):
+        idx = rng.integers(0, n, n); po = np.array([(pred_sil[idx] == c).mean() for c in ORDRE])
+        boots["CC"].append(_nps(po)); boots["ACC"].append(_nps(_acc(po)))
+    res = {k: {"parts": {c: round(float(v[i]), 4) for i, c in enumerate(ORDRE)}, "nps": _nps(v)} for k, v in est.items()}
+    for k in boots:
+        res[k]["ic95"] = [round(float(np.percentile(boots[k], 2.5)), 1), round(float(np.percentile(boots[k], 97.5)), 1)]
+    res["matrice_confusion_cv_repondants"] = C.round(4).tolist()
+    return res
 
 
 def audit_equite(df: pd.DataFrame, y_vrai, y_pred, dimensions: list[str], min_groupe: int = 50) -> dict:
@@ -193,10 +265,15 @@ def audit_equite(df: pd.DataFrame, y_vrai, y_pred, dimensions: list[str], min_gr
     return resultats
 
 
-def audit_proxies(df: pd.DataFrame, X_prep: np.ndarray, attributs: dict[str, np.ndarray], seed: int) -> dict:
+def audit_proxies(df: pd.DataFrame, X_prep: np.ndarray, attributs: dict[str, np.ndarray], seed: int,
+                  noms_features: list[str] | None = None, n_top: int = 5) -> dict:
     """§ 4.7 : les features retenues « proxent »-elles un attribut protégé ? On entraîne, pour
     chaque attribut, un classifieur sur les features du modèle et on mesure l'AUC en validation
-    croisée : 0,5 = aucune information, 1 = l'attribut est entièrement reconstructible."""
+    croisée : 0,5 = aucune information, 1 = l'attribut est entièrement reconstructible.
+
+    On rapporte aussi **quelles** features le reconstruisent (coefficients standardisés les plus
+    forts) : sans cela, « le modèle retrouve l'âge » reste une affirmation qu'on ne peut ni
+    vérifier ni corriger. Avec la liste, on peut chiffrer le coût de leur retrait (ablation)."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import StratifiedKFold, cross_val_predict
     res = {}
@@ -206,14 +283,23 @@ def audit_proxies(df: pd.DataFrame, X_prep: np.ndarray, attributs: dict[str, np.
             continue
         clf = LogisticRegression(max_iter=2000, class_weight="balanced", random_state=seed)
         p = cross_val_predict(clf, X_prep, cible, cv=StratifiedKFold(5, shuffle=True, random_state=seed), method="predict_proba")[:, 1]
-        res[nom] = {"auc": round(float(roc_auc_score(cible, p)), 4), "prevalence": round(float(cible.mean()), 4)}
+        entree = {"auc": round(float(roc_auc_score(cible, p)), 4), "prevalence": round(float(cible.mean()), 4)}
+        if noms_features is not None:
+            coef = clf.fit(X_prep, cible).coef_[0]
+            ordre = np.argsort(-np.abs(coef))[:n_top]
+            entree["features_reconstructrices"] = [{"variable": noms_features[i], "coefficient": round(float(coef[i]), 3)} for i in ordre]
+        res[nom] = entree
     return res
 
 
 def seuils_par_groupe(y_vrai, proba_det, groupes, rappel_cible: float) -> dict:
-    """Mitigation testée (§ 4.7) : un seuil de décision Détracteur par groupe, choisi pour que
-    chaque groupe atteigne le même rappel. On mesure ce que ça coûte en précision et en volume
-    d'appels — l'arbitrage est ensuite au métier, pas au modèle."""
+    """Calcule, par groupe, le seuil de probabilité qui atteint `rappel_cible` sur les détracteurs
+    de ce groupe. Le seuil EXACT est conservé à part (`seuil_exact`) : l'arrondi d'affichage
+    exclurait le détracteur exactement à la frontière et ferait mentir le tableau agrégé.
+
+    ⚠️ Estimé sur les données qui servent aussi à l'évaluer, cet estimateur est optimiste par
+    construction. `mitigation_seuils` ci-dessous calibre donc les seuils sur les répondants
+    (hors échantillon) avant de les appliquer aux silencieux."""
     y_vrai = np.asarray(y_vrai).astype(str); proba_det = np.asarray(proba_det); groupes = np.asarray(groupes).astype(str)
     res = {}
     for g in np.unique(groupes):
@@ -224,7 +310,37 @@ def seuils_par_groupe(y_vrai, proba_det, groupes, rappel_cible: float) -> dict:
         p_det = np.sort(proba_det[m][det])[::-1]
         seuil = float(p_det[min(int(np.ceil(rappel_cible * len(p_det))) - 1, len(p_det) - 1)])
         pred = proba_det[m] >= seuil
-        res[g] = {"seuil": round(seuil, 4), "rappel": round(float(pred[det].mean()), 4),
+        res[g] = {"seuil": round(seuil, 4), "seuil_exact": seuil, "rappel": round(float(pred[det].mean()), 4),
                   "precision": round(float(det[pred].mean()) if pred.any() else 0.0, 4),
                   "taux_selection": round(float(pred.mean()), 4), "effectif": int(m.sum())}
     return res
+
+
+def appliquer_seuils(pred_base, proba_det, groupes, seuils: dict) -> np.ndarray:
+    """Applique un seuil par groupe : au-dessus → Détracteur ; en dessous, un client qui était
+    prédit Détracteur est rétrogradé en Passif (la classe adjacente), jamais en Promoteur."""
+    pred = np.asarray(pred_base).astype(str).copy(); proba_det = np.asarray(proba_det); groupes = np.asarray(groupes).astype(str)
+    for g, v in seuils.items():
+        m = groupes == g
+        if not m.any():
+            continue
+        s = v.get("seuil_exact", v["seuil"])
+        pred[m] = np.where(proba_det[m] >= s, "Detracteur", np.where(pred[m] == "Detracteur", "Passif", pred[m]))
+    return pred
+
+
+def mitigation_seuils(y_rep, proba_rep, groupes_rep, y_sil, proba_sil, groupes_sil, pred_sil, rappel_cible: float) -> dict:
+    """§ 4.7 — mitigation d'équité par seuil de décision propre à chaque groupe d'âge.
+
+    Deux variantes, et c'est le point de la section : la variante *hors échantillon* est la seule
+    honnête (seuils appris sur les répondants, appliqués aux silencieux) ; la variante *in-sample*
+    est donnée pour montrer de combien la première déçoit par rapport à la promesse théorique."""
+    s_rep = seuils_par_groupe(y_rep, proba_rep, groupes_rep, rappel_cible)
+    s_sil = seuils_par_groupe(y_sil, proba_sil, groupes_sil, rappel_cible)
+    return {
+        "rappel_cible": round(float(rappel_cible), 4),
+        "seuils_hors_echantillon": {g: {k: v for k, v in d.items() if k != "seuil_exact"} for g, d in s_rep.items()},
+        "seuils_in_sample": {g: {k: v for k, v in d.items() if k != "seuil_exact"} for g, d in s_sil.items()},
+        "pred_hors_echantillon": appliquer_seuils(pred_sil, proba_sil, groupes_sil, s_rep),
+        "pred_in_sample": appliquer_seuils(pred_sil, proba_sil, groupes_sil, s_sil),
+    }

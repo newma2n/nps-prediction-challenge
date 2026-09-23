@@ -102,6 +102,25 @@ def main():
     idx_tous = rng.choice(len(cur), size=150 * 6, replace=False, p=p_rep)
     pred_cur = np.asarray(art["pipeline_decision"].predict(cur[colonnes])).astype(str)
     y_cur = cur["cible_M3"].astype(str).values
+    # L'équité se surveille au même titre que la performance. L'audit de la phase 5 a établi un
+    # écart de rappel Détracteur entre tranches d'âge ; un écart mesuré une fois puis jamais repris
+    # est un constat, pas un garde-fou. On recalcule donc le rappel par tranche d'âge sur les
+    # réponses cumulées de chaque mois, et on lève une alerte dès que l'écart dépasse le seuil de
+    # signalement fixé à l'étape 1 (config.yaml → criteres_succes.ecart_equite_signalement).
+    ages_cur = cur["tranche_age"].astype(str).values
+    SEUIL_EQUITE = float(cfg.get("criteres_succes", {}).get("ecart_equite_signalement", 0.10))
+    MIN_DETRACTEURS_GROUPE = 10   # en dessous, le rappel d'un groupe n'est pas interprétable
+
+    def _rappels_par_age(sel):
+        pris = np.zeros(len(cur), dtype=bool); pris[np.asarray(sel, dtype=int)] = True
+        out = {}
+        for g in sorted(set(ages_cur)):
+            m = pris & (ages_cur == g) & (y_cur == "Detracteur")
+            if int(m.sum()) < MIN_DETRACTEURS_GROUPE:
+                continue
+            out[g] = {"detracteurs": int(m.sum()), "rappel": round(float((pred_cur[m] == "Detracteur").mean()), 4)}
+        return out
+
     lots, cumul_idx = [], []
     MIN_LABELS, CHUTE_KAPPA, CHUTE_RAPPEL = 500, 0.05, 0.10
     for mois in range(6):
@@ -111,17 +130,29 @@ def main():
         r_lot = recall_score(y_cur[idx], pred_cur[idx], labels=["Detracteur"], average="macro", zero_division=0)
         k_cum = cohen_kappa_score(y_cur[cumul_idx], pred_cur[cumul_idx], weights="quadratic", labels=ORDRE)
         r_cum = recall_score(y_cur[cumul_idx], pred_cur[cumul_idx], labels=["Detracteur"], average="macro", zero_division=0)
+        eq = _rappels_par_age(cumul_idx)
+        ecart = (round(max(v["rappel"] for v in eq.values()) - min(v["rappel"] for v in eq.values()), 4)
+                 if len(eq) >= 2 else None)
         lots.append({"mois": mois + 1, "nouvelles_reponses": len(idx), "cumul": len(cumul_idx),
                      "kappa_lot": round(float(k_lot), 4), "rappel_detracteur_lot": round(float(r_lot), 4),
                      "kappa_cumul": round(float(k_cum), 4), "rappel_detracteur_cumul": round(float(r_cum), 4),
+                     "rappel_detracteur_par_age_cumul": eq, "ecart_equite_age_cumul": ecart,
+                     "groupes_suivis": len(eq),
+                     "alerte_equite": bool(ecart is not None and ecart > SEUIL_EQUITE),
                      "chute_performance": bool(k_cum < kappa_ref - CHUTE_KAPPA or r_cum < rappel_ref - CHUTE_RAPPEL),
                      "volume_atteint": len(cumul_idx) >= MIN_LABELS})
     suivi = {"reference": {"kappa": round(kappa_ref, 4), "rappel_detracteur": round(rappel_ref, 4)},
              "seuils": {"min_nouveaux_labels": MIN_LABELS, "chute_kappa": CHUTE_KAPPA, "chute_rappel_detracteur": CHUTE_RAPPEL,
-                        "echeance_max_mois": 6},
+                        "echeance_max_mois": 6, "ecart_equite_age": SEUIL_EQUITE,
+                        "min_detracteurs_par_groupe": MIN_DETRACTEURS_GROUPE},
              "lots": lots,
              "premier_mois_volume_atteint": next((l["mois"] for l in lots if l["volume_atteint"]), None),
              "chute_detectee": any(l["chute_performance"] for l in lots),
+             "premier_mois_alerte_equite": next((l["mois"] for l in lots if l["alerte_equite"]), None),
+             "alerte_equite_detectee": any(l["alerte_equite"] for l in lots),
+             "note_equite": ("le rappel Détracteur est recalculé par tranche d'âge sur les réponses cumulées ; une alerte est levée "
+                             "au-delà de " + f"{SEUIL_EQUITE:.0%}" + " d'écart entre le groupe le mieux et le moins bien servi. Un groupe comptant "
+                             "moins de " + str(MIN_DETRACTEURS_GROUPE) + " détracteurs n'est pas évalué : le rappel y serait trop bruité pour décider."),
              "note": "réponses tirées parmi les silencieux selon la propension S3 (les extrêmes répondent plus) : la performance sur les nouveaux répondants est donc optimiste par rapport à la base — exactement le biais que le monitoring réel subira"}
 
     # Figure
@@ -149,13 +180,27 @@ def main():
         "reentrainement_declenche_mois_simule": declenche,
         "scenario_simule": "tarif +12 %, 15 % des contrats basculés en mensuel, 10 % migrés vers la fibre",
         "suivi_nouvelles_reponses": suivi,
+        # Les cinq déclencheurs de réentraînement : énoncés ici avec leur règle
+        # ET leur état sur le mois simulé, pour qu'un lecteur puisse vérifier qu'ils se déclenchent.
+        "declencheurs_reentrainement": [
+            {"declencheur": "dérive des entrées", "regle": "PSI > " + str(SEUIL_ALERTE) + " sur au moins une variable du modèle",
+             "etat_mois_simule": bool(alertes_sim)},
+            {"declencheur": "chute de performance", "regle": "kappa cumulé < référence − 0,05 ou rappel Détracteur < référence − 0,10",
+             "etat_mois_simule": bool(suivi["chute_detectee"])},
+            {"declencheur": "volume de nouveaux labels", "regle": "500 nouvelles réponses d'enquête cumulées",
+             "etat_mois_simule": suivi["premier_mois_volume_atteint"] is not None},
+            {"declencheur": "équité", "regle": "écart de rappel Détracteur entre tranches d'âge > " + f"{suivi['seuils']['ecart_equite_age']:.0%}",
+             "etat_mois_simule": bool(suivi["alerte_equite_detectee"])},
+            {"declencheur": "échéance", "regle": "réentraînement au plus tard tous les 6 mois", "etat_mois_simule": True},
+        ],
     }
     (RACINE / "reports").mkdir(exist_ok=True)
     with open(RACINE / "reports" / "monitoring.json", "w", encoding="utf-8") as f:
         json.dump(res, f, ensure_ascii=False, indent=2)
     print(f"PSI prédictions courant={psi_pred:.3f} · mois simulé={psi_pred_sim:.3f} · "
           f"alertes simulées={alertes_sim} · réentraînement déclenché={declenche} · "
-          f"volume de labels atteint au mois {suivi['premier_mois_volume_atteint']} · chute détectée={suivi['chute_detectee']}")
+          f"volume de labels atteint au mois {suivi['premier_mois_volume_atteint']} · chute détectée={suivi['chute_detectee']} · "
+          f"alerte équité={suivi['alerte_equite_detectee']} (mois {suivi['premier_mois_alerte_equite']})")
     return res
 
 

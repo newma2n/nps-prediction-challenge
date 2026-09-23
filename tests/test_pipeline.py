@@ -105,9 +105,29 @@ def test_mappings_et_nps(df, cfg):
     for m in ("M1", "M2", "M3"):
         assert set(cibles[m].dropna().unique()) <= set(ORDRE)
     assert nps(cibles["M1"]) == pytest.approx(-42.0, abs=0.1)
+    assert nps(cibles["M2"]) == pytest.approx(-4.1, abs=0.2)
     assert arb["n_ambigus"] == 2665
     assert 0.0 < arb["part_3_vers_detracteur"] < 1.0
     assert 0.70 <= arb["exactitude_sur_extremes"] <= 0.90
+
+
+def test_arbitrage_des_3_verrouille(df, cfg):
+    """La décision la plus lourde de l'étude est verrouillée par un test, pas seulement racontée.
+
+    Le bloc des 2 665 clients à satisfaction « 3 » part chez les Passifs parce que 27,9 % seulement
+    penchent détracteur — bien en deçà du seuil de bascule de 50 %. Si un changement de données, de
+    features ou de graine déplaçait cette valeur, le NPS de référence changerait de plus de
+    60 points sans que personne ne s'en aperçoive. Ce test rend ce glissement impossible en silence.
+    """
+    cibles, arb = construire_cibles(df, cfg, cfg["seed"])
+    assert arb["destination_des_3"] == "Passif"
+    assert arb["part_3_vers_detracteur"] == pytest.approx(0.2788, abs=0.02)
+    assert arb["seuil_bascule"] == 0.5
+    assert arb["issues_possibles"] == ["Detracteur", "Passif"]   # un milieu d'échelle ne se promeut pas
+    assert arb["marge_a_la_bascule"] > 0.15                      # la décision n'est pas sur le fil
+    assert nps(cibles["M3"]) == pytest.approx(21.3, abs=1.0)
+    # Les trois mappings doivent rester distincts : sinon la sensibilité au mapping ne teste rien.
+    assert nps(cibles["M1"]) < nps(cibles["M2"]) < nps(cibles["M3"])
 
 
 def test_indicateur_profil_detracteur_reserve_aux_ambigus(df, cfg):
@@ -227,8 +247,72 @@ def test_resultats_pas_de_fuite_trois_classes_et_selection_sans_test():
     assert len(sel["classement"]) == len(NOMS)
 
 
+@pytest.mark.skipif(not (RACINE / "reports" / "resultats.json").exists(), reason="pipeline non exécuté")
+def test_criteres_de_succes_chiffres_sont_verifies(cfg):
+    """Les critères de succès de l'étape 1 sont vérifiés par le pipeline ET par un test.
+
+    Un critère fixé a priori qui n'est jamais confronté au résultat n'est pas un critère : c'est une
+    intention. On relit donc ici les seuils de `config.yaml` et on les compare aux chiffres publiés.
+    """
+    R = json.load(open(RACINE / "reports" / "resultats.json", encoding="utf-8"))
+    cs = cfg["criteres_succes"]
+    pk = R["evaluation_metier"]["precision_at_k"]
+    eco = R["evaluation_metier"]["economie"]
+    assert pk["lift"] >= cs["lift_min"]
+    assert pk["precision_at_k"] >= cs["precision_at_k_min"]
+    assert eco["gain_net_eur"] > cs["gain_net_min_eur"]
+    assert eco["gain_net_eur"] > eco["gain_net_ciblage_aleatoire_eur"]   # le modèle bat le hasard
+    for c in ORDRE:
+        assert R["modele_final"]["metriques_retenues"]["par_classe"][c]["rappel"] >= cs["rappel_min_par_classe"]
+    # Le bloc de vérification doit exister dans les résultats et dire la même chose que ce test.
+    v = R["criteres_succes"]["verification"]
+    assert len(v) == 5 and all(x["atteint"] for x in v)
+    # Un écart d'équité au-delà du seuil doit être PUBLIÉ, pas masqué.
+    signale = [x for x in v if "signalement" in x][0]
+    if signale["valeur"] is not None and signale["valeur"] > cs["ecart_equite_signalement"]:
+        assert signale["signalement"], "écart d'équité au-dessus du seuil mais aucune dimension signalée"
+
+
+@pytest.mark.skipif(not (RACINE / "reports" / "resultats.json").exists(), reason="pipeline non exécuté")
+def test_leviers_et_drivers_sont_exploitables():
+    """Trois garde-fous d'utilité, pas de performance.
+
+    (1) Le premier levier est très concentré, et c'est un fait de la base, pas un défaut de la
+        règle : presque tous les détracteurs prédits sont en contrat mensuel. Ce qu'on verrouille
+        ici, c'est que la concentration soit **publiée** et que le **second** levier, lui,
+        différencie réellement les clients — sans quoi la recommandation ne trierait rien.
+    (2) Les contributions doivent être agrégées par variable d'origine : la présence d'un nom de
+        modalité one-hot dans le classement signale une régression de l'agrégation.
+    (3) Le sens de chaque driver doit être publié pour toutes les variables classées.
+    """
+    R = json.load(open(RACINE / "reports" / "resultats.json", encoding="utf-8"))
+    lev = R["leviers"]
+    assert len(lev["distribution_detracteurs_predits"]) >= 2
+    assert lev["concentration_du_levier_dominant"] is not None      # publiée, jamais tue
+    assert lev["n_leviers_distincts_en_second"] >= 3                # le second levier trie
+    assert len(lev["distribution_paires"]) >= 3
+    assert lev["concentration_de_la_paire_dominante"] < 0.80        # le couple n'est pas dégénéré
+    dr = R["drivers"]
+    assert "erreur" not in dr
+    assert set(dr["sens"]) <= set(dr["importance_detracteur"])
+    assert not [v for v in dr["importance_detracteur"] if v.startswith("Contract_")]
+
+
 @pytest.mark.skipif(not (RACINE / "data" / "processed" / "clients_scores.parquet").exists(), reason="pipeline non exécuté")
 def test_scores_clients_complets():
     s = pd.read_parquet(RACINE / "data" / "processed" / "clients_scores.parquet")
     assert len(s) == 7043 and s["proba_detracteur"].between(0, 1).all()
     assert set(s["prediction"].unique()) <= set(ORDRE) and s["levier_recommande"].notna().all()
+
+
+# --- Livrables (contraintes explicites de l'énoncé § 6) -------------------------------
+@pytest.mark.skipif(not (RACINE / "livrable" / "write_up.pdf").exists(), reason="write-up non généré")
+def test_le_write_up_tient_dans_les_3_a_6_pages_demandees():
+    """L'énoncé impose « a short write-up (3–6 pages) ». C'est une contrainte chiffrée, donc
+    vérifiable : elle mérite un test plutôt qu'une relecture à l'œil. Un document qui déborde
+    n'est pas un document plus riche, c'est un document hors cahier des charges."""
+    import fitz
+    doc = fitz.open(RACINE / "livrable" / "write_up.pdf")
+    n = doc.page_count
+    doc.close()
+    assert 3 <= n <= 6, f"write_up.pdf fait {n} pages ; l'énoncé en demande 3 à 6"

@@ -1,7 +1,7 @@
 # Phase 6 — Déploiement
 
 **En bref.** Le modèle est persisté d'un bloc (préprocessing + modèle + calibrateur) et consommé par
-une application Streamlit de sept pages pour l'équipe rétention : liste d'appels priorisée, analyse
+une application Streamlit de huit pages, filtrable, pour l'équipe rétention : liste d'appels priorisée, analyse
 d'un client avec ses drivers et son levier, saisie manuelle tolérante aux inconnus, verbatim en
 démonstration. Un monitoring implémenté surveille la dérive des entrées et des prédictions, la
 performance sur les nouvelles réponses d'enquête, et déclenche le réentraînement sur seuil, volume ou
@@ -29,7 +29,7 @@ performance sur les nouvelles réponses d'enquête, et déclenche le réentraîn
 
 ## 2. L'application — choix de conception (énoncé § 4.8)
 
-`streamlit run app/app.py` · sept pages, adressables par `?page=` · toutes les valeurs sont lues dans
+`docker compose up` ou `streamlit run app/app.py` · huit pages, adressables par `?page=` · toutes les valeurs sont lues dans
 les artefacts du pipeline, rien n'est recopié.
 
 | Page | Pour qui | Ce qu'elle permet |
@@ -62,6 +62,22 @@ en moins d'une seconde pour les modèles linéaires et à arbres.
 `python -m src.verbatims` et `python -m src.texte` · `python -m src.monitoring` · `python -m src.rapports` ·
 `python -m src.writeup` · `python -m pytest tests -q`. Seed unique ; aucune clé dans le dépôt (`.env` ignoré,
 `.env.example` fourni) ; test à blanc depuis une copie vierge (phase 5 § 9).
+
+**Livraison par conteneur.** « Someone else should be able to re-run your pipeline » (énoncé § 7) suppose que cette
+personne parvienne d'abord à installer l'environnement — ce qui, avec quinze modèles et une contrainte `numpy < 2`,
+n'est pas acquis. Le dépôt embarque donc une image Docker :
+
+```bash
+docker compose up --build          # l'application sur http://localhost:8501
+```
+
+L'image de livraison contient le modèle entraîné, le jeu de données dérivé, les rapports et les figures : **aucune
+donnée brute ni clé n'est nécessaire pour voir l'outil**. Elle tourne sans privilèges et expose une sonde de santé.
+Un second étage, construit à la demande (`docker compose --profile pipeline run --rm pipeline`), ajoute le catalogue
+de modèles et rejoue tout le calcul depuis les cinq classeurs IBM, avec les mêmes versions épinglées — c'est la
+réponse la plus forte à l'exigence de reproductibilité, puisqu'elle fige l'environnement en même temps que le code.
+Les modèles de fondation (PyTorch, TabICL, TabPFN) restent hors image : ils la feraient passer de 0,8 à plus de 3 Go
+pour des résultats déjà calculés et lus dans `reports/fondation.json`.
 
 ## 4. Monitoring et réentraînement (énoncé § 4.9) — implémenté
 
@@ -113,18 +129,32 @@ silencieux selon la propension biaisée S3) :
 
 ![](figures/06_nouvelles_reponses.png)
 
-| Mois | Nouvelles réponses | Cumul | Kappa (lot) | Rappel Dét. (lot) | Kappa (cumul) | Rappel Dét. (cumul) | Chute | Volume atteint |
-|---|---|---|---|---|---|---|---|---|
-| 1 | 150 | 150 | 0.510 | 0.583 | 0.510 | 0.583 |  |  |
-| 2 | 150 | 300 | 0.556 | 0.622 | 0.534 | 0.602 |  |  |
-| 3 | 150 | 450 | 0.523 | 0.595 | 0.531 | 0.600 |  |  |
-| 4 | 150 | 600 | 0.600 | 0.641 | 0.549 | 0.612 |  | ✓ |
-| 5 | 150 | 750 | 0.451 | 0.476 | 0.530 | 0.587 |  | ✓ |
-| 6 | 150 | 900 | 0.420 | 0.609 | 0.513 | 0.591 |  | ✓ |
+| Mois | Nouvelles réponses | Cumul | Kappa (lot) | Rappel Dét. (lot) | Kappa (cumul) | Rappel Dét. (cumul) | Écart d'équité (âge, cumul) | Alerte équité | Chute | Volume atteint |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 150 | 150 | 0.510 | 0.583 | 0.510 | 0.583 | 13.6% | ⚠️ |  |  |
+| 2 | 150 | 300 | 0.556 | 0.622 | 0.534 | 0.602 | 20.8% | ⚠️ |  |  |
+| 3 | 150 | 450 | 0.523 | 0.595 | 0.531 | 0.600 | 12.4% | ⚠️ |  |  |
+| 4 | 150 | 600 | 0.600 | 0.641 | 0.549 | 0.612 | 18.2% | ⚠️ |  | ✓ |
+| 5 | 150 | 750 | 0.451 | 0.476 | 0.530 | 0.587 | 17.8% | ⚠️ |  | ✓ |
+| 6 | 150 | 900 | 0.420 | 0.609 | 0.513 | 0.591 | 13.4% | ⚠️ |  | ✓ |
 
 Référence : kappa 0.384, rappel 0.629. Seuils : chute de kappa > 0.05, chute de rappel
 > 0.1, volume minimal 500 nouveaux labels (atteint au mois 4), échéance 6 mois.
 Chute détectée sur la simulation : non. réponses tirées parmi les silencieux selon la propension S3 (les extrêmes répondent plus) : la performance sur les nouveaux répondants est donc optimiste par rapport à la base — exactement le biais que le monitoring réel subira.
+
+**L'équité est surveillée, pas seulement auditée une fois.** le rappel Détracteur est recalculé par tranche d'âge sur les réponses cumulées ; une alerte est levée au-delà de 10% d'écart entre le groupe le mieux et le moins bien servi. Un groupe comptant moins de 10 détracteurs n'est pas évalué : le rappel y serait trop bruité pour décider.
+Sur cette simulation, l'alerte d'équité se déclenche dès le mois 1 —
+ce qui est attendu : l’écart mesuré en phase 5 dépasse le seuil de signalement, et le monitoring le retrouve sur les nouvelles réponses.
+
+**Les déclencheurs de réentraînement, et leur état sur le mois simulé** — on montre qu'ils se déclenchent, on ne se contente pas de les annoncer :
+
+| Déclencheur | Règle | Déclenché sur la simulation |
+|---|---|---|
+| dérive des entrées | PSI > 0.2 sur au moins une variable du modèle | ⚠️ oui |
+| chute de performance | kappa cumulé < référence − 0,05 ou rappel Détracteur < référence − 0,10 | non |
+| volume de nouveaux labels | 500 nouvelles réponses d'enquête cumulées | ⚠️ oui |
+| équité | écart de rappel Détracteur entre tranches d'âge > 10% | ⚠️ oui |
+| échéance | réentraînement au plus tard tous les 6 mois | ⚠️ oui |
 
 
 **Ce qu'on surveille, et quand on réentraîne** :
@@ -134,9 +164,15 @@ Chute détectée sur la simulation : non. réponses tirées parmi les silencieux
 | Dérive des entrées | PSI par variable, mensuel, vs population d'entraînement | PSI > 0,20 sur une variable majeure (`Contract`, `Tenure`, `Monthly Charge`) |
 | Dérive des prédictions | PSI de P(Détracteur) ; part de Détracteurs prédits | PSI > 0,20 ou variation > 5 points sans cause métier connue |
 | Performance réelle | kappa et rappel Détracteur sur les **nouvelles réponses d'enquête** | chute > 0,05 de kappa ou > 10 points de rappel |
-| Équité | rappel Détracteur par tranche d'âge sur les nouvelles réponses | écart > 15 points |
+| Équité | rappel Détracteur par tranche d'âge sur le **cumul** des nouvelles réponses — **implémenté**, drapeau `alerte_equite` | écart > 10 points, le seuil de la phase 1 |
 | Volume de labels | nouvelles réponses reçues | réentraînement dès 500 nouveaux labels, au plus tard tous les 6 mois |
 | Calibration | ECE sur les nouvelles réponses | recalibrer (Platt) sur les vraies réponses de la population cible dès 300 labels |
+
+*Le seuil d'équité est **le même partout dans l'étude** — celui fixé à la phase 1. Une version
+antérieure de cette carte en annonçait 15 quand le critère de succès en annonçait 10 : deux seuils
+pour une même règle, donc aucune règle. L'écart n'est lisible qu'en **cumul** : sur 150 réponses par
+mois, un groupe d'âge compte trop peu de détracteurs pour qu'un rappel y soit interprétable, et le
+monitoring n'évalue donc un groupe qu'à partir de dix détracteurs observés.*
 
 Outil recommandé en production : Evidently (rapports HTML autonomes), cité par l'énoncé ; ici le PSI
 est implémenté directement pour rester sans dépendance.
@@ -163,7 +199,7 @@ dégrade, et personne ne voit pourquoi. Trois parades, par ordre de coût :
 | Décision | Justification | Où c'est vérifié |
 |---|---|---|
 | Persistance d'un bloc : pipelines calibré, brut, de décision + métadonnées | rejouable sans réentraînement ; l'application n'a aucune logique de préparation | § 1, `models/modele_final.joblib` |
-| Streamlit, sept pages, contenu lu dans les artefacts | interface pour un responsable rétention ; aucune valeur recopiée | § 2 |
+| Streamlit, huit pages filtrables, contenu lu dans les artefacts | interface pour un responsable rétention ; aucune valeur recopiée ; les filtres croisés évitent de chercher dans 5 963 lignes | § 2 |
 | Tolérance aux inconnus par le pipeline, pas par l'interface | un seul endroit à tester | § 2, test dédié |
-| Monitoring : PSI + performance sur nouvelles réponses + volume + échéance | les quatre déclencheurs de l'énoncé | § 4 |
+| Monitoring : PSI + performance sur nouvelles réponses + volume + équité + échéance | cinq déclencheurs, chacun avec sa règle et son état sur le mois simulé | § 4 |
 | Groupe de contrôle recommandé | seule façon de mesurer l'effet et d'éviter la boucle de rétroaction | § 5 |

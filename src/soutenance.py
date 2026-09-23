@@ -222,7 +222,7 @@ def figures(cfg, R, df, cibles, arb):
         mat = pd.DataFrame({s: {v: seg[s]["drivers"].get(v, {}).get("importance", 0.0) for v in allv} for s in seg})
         im = axes[1].imshow(mat.values, cmap="Reds", aspect="auto")
         axes[1].set_xticks(range(len(mat.columns))); axes[1].set_xticklabels(mat.columns, rotation=25, ha="right", fontsize=11)
-        axes[1].set_yticks(range(len(allv))); axes[1].set_yticklabels(allv, fontsize=11); axes[1].set_title("Les mêmes drivers ne pèsent pas partout pareil")
+        axes[1].set_yticks(range(len(allv))); axes[1].set_yticklabels(allv, fontsize=11); axes[1].set_title("Où chaque variable pèse le plus (effet de composition, modèle additif)")
         plt.colorbar(im, ax=axes[1], fraction=0.035, label="importance dans le segment")
     F["drivers"] = _fig("S9_drivers.png")
 
@@ -313,7 +313,7 @@ th { color: #1f4e79; font-weight: 600; background: #f3f8fc; }
 .titre h1 { color: white; font-size: 34pt; margin: 0 0 6mm; } .titre h1 small { color: #cfe0f0; font-size: 15pt; }
 .titre .meta { color: #cfe0f0; font-size: 12pt; margin-top: 12mm; }
 .crisp { display: flex; gap: 4mm; margin-top: 6mm; }
-.crisp .ph { flex: 1; border-radius: 3mm; padding: 4mm; background: #f3f8fc; border-top: 4px solid #2c7fb8; font-size: 10.5pt; min-height: 95mm; }
+.crisp .ph { flex: 1; border-radius: 3mm; padding: 4mm; background: #f3f8fc; border-top: 4px solid #2c7fb8; font-size: 10.5pt; min-height: 78mm; }
 .crisp .ph h3 { margin: 0 0 2mm; font-size: 12pt; color: #1f4e79; } .crisp .ph ul { padding-left: 4mm; margin: 0; } .crisp .ph li { margin-bottom: 1.5mm; }
 .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3mm; margin-top: 3mm; }
 .mod { border: 1px solid #d5dbe1; border-radius: 2mm; padding: 2.5mm 3mm; font-size: 9.6pt; }
@@ -323,12 +323,29 @@ th { color: #1f4e79; font-weight: 600; background: #f3f8fc; }
 """
 
 
+def _n_tests() -> int:
+    """Nombre de fonctions de test, compté dans les fichiers plutôt qu'écrit en dur.
+
+    Un décompte figé cesse d'être vrai au premier test ajouté, et personne ne le remarque : c'est
+    exactement le genre de petit mensonge qui décrédibilise un rendu quand un jury le vérifie.
+    On compte les fonctions, pas les cas exécutés (les tests paramétrés en produisent davantage),
+    et c'est ce que le libellé annonce.
+    """
+    n = 0
+    for f in sorted((RACINE / "tests").glob("test_*.py")):
+        for ligne in f.read_text(encoding="utf-8").split("\n"):
+            if ligne.startswith("def test_"):
+                n += 1
+    return n
+
+
 def diapos(cfg, R, F, arb) -> str:
     mf = R["modele_final"]; m = mf["metriques_retenues"]; sel = R["selection_modele_final"]; cl = pd.DataFrame(sel["classement"])
     pk = R["evaluation_metier"]["precision_at_k"]; eco = R["evaluation_metier"]["economie"]; ns = R["nps_simule"]
     eq = R["audit_equite"]; ga = eq["tranche_age"]["groupes"]; px = R["audit_proxies"]; mit = R["mitigation_seuils_age"]
     dg = {d["scenario"]: d for d in R["diagnostic_protocole"]}; fu = R["diagnostic_fuite"]; de = R["desequilibre"]
     fo = _j("fondation"); tx = _j("texte"); mo = _j("monitoring"); rp = _j("reproductibilite")
+    n_tests = _n_tests()
     ret = cl[cl.modele == sel["retenu"]].iloc[0]; gs = cl[cl.modele == sel["gagnant_silencieux"]].iloc[0]
     br = [b for b in R["bruit_etiquettes"] if "kappa" in b]; ab = {a["configuration"]: a for a in R["ablation_features"] if "kappa" in a}
     def dk(motif):
@@ -380,8 +397,9 @@ def diapos(cfg, R, F, arb) -> str:
 <div class="ph"><h3>3 · Préparation</h3><ul><li>cible : 3 mappings, <b>arbitrage empirique des « 3 »</b></li><li>features justifiées une à une</li><li>colinéarité, déséquilibre (5 stratégies)</li><li>tout dans un Pipeline</li></ul></div>
 <div class="ph"><h3>4 · Modélisation</h3><ul><li>protocole 15/85 <b>MNAR</b></li><li><b>15 modèles, 7 familles</b></li><li>réglage, <b>sélection sans regarder le test</b></li><li>calibration vérifiée</li><li>TabICL, texte</li></ul></div>
 <div class="ph"><h3>5 · Évaluation</h3><ul><li>par classe, métier, NPS simulé</li><li>robustesse : bruit, ablation, mapping</li><li>drivers globaux et par segment</li><li><b>équité, proxies, mitigation</b></li></ul></div>
-<div class="ph"><h3>6 · Déploiement</h3><ul><li>modèle persisté, app 7 pages</li><li>monitoring 4 déclencheurs</li><li>boucle de rétroaction</li><li>reproductibilité, tests</li><li>décision demandée</li></ul></div></div>
-<div class="note">Livrables : étude en 8 documents (dont la <b>matrice de conformité à l'énoncé</b>), write-up 6 pages, application, notebook, 39 tests, test à blanc depuis copie vierge {'identique sur ' + str(len(rp['comparaison'])) + ' indicateurs' if rp and rp.get('reproductible') else ''}.</div>""", 3)
+<div class="ph"><h3>6 · Déploiement</h3><ul><li>modèle persisté, app 8 pages filtrables, image Docker</li><li>monitoring 5 déclencheurs, dont l'équité</li><li>boucle de rétroaction</li><li>reproductibilité, tests</li><li>décision demandée</li></ul></div></div>
+<div class="warn"><b>Gestion du périmètre</b> (énoncé : « scope management more than over-engineering ») : chaque pièce répond à une exigence nommée — matrice de conformité en diapo 21. Quinze modèles ne sont pas une course au score : une comparaison qui établit que le plafond vient du signal, donc que la marche suivante est métier (vraies réponses, groupe de contrôle). Laissé de côté volontairement, et dit : enrichissement externe, deep ordinal, API de scoring, MLflow.</div>
+<div class="note">Livrables : étude en 8 documents (dont la <b>matrice de conformité à l'énoncé</b>), write-up 6 pages, application, notebook, {n_tests} fonctions de test, test à blanc depuis copie vierge {'identique sur ' + str(len(rp['comparaison'])) + ' indicateurs' if rp and rp.get('reproductible') else ''}.</div>""", 3)
 
     # 4 — fuites
     slide("CRISP-DM · 2 · compréhension des données", "Énoncé § 4.1 — data leakage", "Le dataset contient sa propre réponse : toute colonne liée au churn est une fuite",
@@ -394,7 +412,7 @@ def diapos(cfg, R, F, arb) -> str:
     # 5 — cible
     slide("CRISP-DM · 3 · préparation", "Énoncé § 4.1 — building the NPS target", f"La grille de l'énoncé donne un NPS de {arb['nps']['M1']:+.0f} ; les données disent {arb['nps']['M3']:+.0f}",
           "Trois mappings, un arbitrage empirique des 2 665 clients « 3 », et un piège de circularité évité", fig_txt(F["cible"], f"""
-<ul><li><b>M1</b> (énoncé) envoie 58 % de la base chez les détracteurs, dont {arb['n_ambigus']} clients « 3 » restés à 84 %. NPS {arb['nps']['M1']:+.0f} : à 60–75 pts des benchmarks télécom — signal d'alerte, pas résultat.</li>
+<ul><li><b>M1</b> (énoncé) envoie {arb['distributions']['M1'].get('Detracteur', 0):.0%} de la base chez les détracteurs, dont {arb['n_ambigus']} clients « 3 ». NPS {arb['nps']['M1']:+.0f} : à 60–75 pts des benchmarks télécom — signal d'alerte, pas résultat.</li>
 <li><b>Arbitrage empirique</b> (méthode Elero et al.) : modèle entraîné sur les seuls extrêmes 1–2 vs 4–5 (exactitude {arb['exactitude_sur_extremes']:.0%}), appliqué aux « 3 » jamais vus : <b>{arb['part_3_vers_promoteur']:.0%} penchent promoteur</b> → le bloc va aux Passifs. NPS {arb['nps']['M3']:+.0f}, dans la fourchette sectorielle.</li>
 <li><b>Piège évité</b> : étiqueter chaque « 3 » individuellement rendrait la cible fonction des features — le modèle réapprendrait sa propre sortie. On tranche le bloc ; la probabilité individuelle reste un indicateur métier.</li>
 <li>Refusé : enrichir la cible par Churn Value (churn déguisé) ou l'ancienneté (même circularité).</li></ul>"""), 5)
@@ -468,11 +486,12 @@ def diapos(cfg, R, F, arb) -> str:
 <div class="kpis" style="margin:0 0 3mm"><div class="kpi"><div class="lab">Gain net apporté</div><div class="val">{_eur(eco['gain_apporte_par_le_modele_eur'])}</div><div class="sub">par campagne vs hasard</div></div><div class="kpi"><div class="lab">ROI</div><div class="val">{eco['roi']:.1f}</div><div class="sub">{_eur(eco['cout_campagne_eur'])} de coût</div></div></div>
 <ul><li>Hypothèses (config.yaml, <b>à valider avec la rétention</b>) : appel {cfg['metier']['cout_appel_eur']} €, client retenu {cfg['metier']['valeur_client_retenu_eur']} €, succès {cfg['metier']['taux_succes_appel']:.0%}.</li>
 <li><b>NPS des silencieux</b> : {ns['nps_silencieux_predit']:+.0f} [{ns['nps_silencieux_predit_ic95'][0]:+.0f} ; {ns['nps_silencieux_predit_ic95'][1]:+.0f}] contre une vérité de {ns['nps_silencieux_vrai']:+.0f} — sous-estimé de {ns['nps_silencieux_vrai'] - ns['nps_silencieux_predit']:.0f} pts. L'intervalle ne couvre que l'aléa d'échantillonnage, pas le biais : dit tel quel. Composition : Détracteurs {ns['part_classes_silencieux_predit']['Detracteur']:.0%} vs {ns['part_classes_silencieux_vrai']['Detracteur']:.0%} réels, Promoteurs {ns['part_classes_silencieux_predit']['Promoteur']:.0%} vs {ns['part_classes_silencieux_vrai']['Promoteur']:.0%}.</li>
-<li>Le classement des segments par NPS est respecté (mensuel et récents les plus critiques).</li></ul>"""), 13)
+<li>Le classement des segments par NPS est respecté (mensuel et récents les plus critiques).</li>
+{('<li><b>Correction testée</b> : quatre estimateurs de quantification (CC, PCC, ACC, PACC) ; le plus proche reste à ' + f"{min(abs(ns['quantification'][k]['nps'] - ns['quantification']['verite']['nps']) for k in ('CC','PCC','ACC','PACC')):.0f}" + ' pts. La matrice de confusion des répondants ne se transfère pas aux silencieux sous MNAR — la correction doit venir de vraies réponses, pas d’un calcul.</li>') if ns.get('quantification') else ''}</ul>"""), 13)
 
     # 14 — drivers
     lev = R["leviers"]["distribution_detracteurs_predits"]; top_lev = max(lev.items(), key=lambda kv: kv[1])
-    slide("CRISP-DM · 5 · évaluation", "Énoncé § 4.6 — drivers, segment-level, actionable, single lever", "Les drivers sont contractuels, stables au mapping, et ne pèsent pas partout pareil",
+    slide("CRISP-DM · 5 · évaluation", "Énoncé § 4.6 — drivers, segment-level, actionable, single lever", "Drivers contractuels, stables au mapping ; par segment, c'est le poids qui change, pas le coefficient",
           f"Explication : {R['drivers']['methode']} — la même dans l'étude et pour chaque client de l'application", fig_txt(F["drivers"], f"""
 <ul><li><b>Contrat sans engagement, faible ancienneté, absence de parrainage, facture élevée</b> vont avec la détraction — cohérent avec Chong et al. (2023) sur ce dataset et Elero et al. (2026).</li>
 <li><b>Offre E</b> : marqueur de clients déjà fragiles (52,9 % de départs vs 27 % sans offre) — biais d'indication, <b>pas une cause</b>. Association ≠ causalité, dit à chaque écran.</li>
@@ -503,22 +522,22 @@ def diapos(cfg, R, F, arb) -> str:
             if x["statut"] == "ok":
                 fo_rows += f"<tr><td><b>{x['nom']}</b></td><td>{x['metriques']['kappa']:.3f}</td><td>{x['metriques']['macro_f1']:.3f}</td><td>{x['metriques']['rappel_passif']:.2f}</td><td>{x['duree_inference_s']:.0f} s ({x['latence_par_client_ms']:.0f} ms/client)</td><td>{'bat' if x['metriques']['kappa'] > fo['reference']['kappa'] + 0.005 else 'ne bat pas'} le retenu</td></tr>"
             else:
-                fo_rows += f"<tr><td><b>{x['nom']}</b></td><td colspan=5>indisponible — dépôt Hugging Face à accès contrôlé (acceptation des conditions + login requis)</td></tr>"
+                fo_rows += f"<tr><td><b>{x['nom']}</b></td><td colspan=5>indisponible — {x.get('cause', x.get('erreur', ''))[:120]}</td></tr>"
         fo_rows += f"<tr><td>{_lib(fo['reference']['modele'])} (retenu)</td><td>{fo['reference']['kappa']:.3f}</td><td>{fo['reference']['macro_f1']:.3f}</td><td>{m['par_classe']['Passif']['rappel']:.2f}</td><td>{fo['reference']['duree_inference_s']:.2f} s</td><td>référence</td></tr>"
     tx_rows = ""
     if tx:
         for lab, v in (("Tabulaire seul", tx["tabulaire_seul"]), ("Texte seul (TF-IDF + logistique)", tx["texte_seul"]), (f"Fusion tardive (poids {tx['fusion_tardive']['poids_texte']:.1f})", tx["fusion_tardive"]), ("Fusion précoce (SVD 20)", tx["fusion_precoce_svd20"])):
             tx_rows += f"<tr><td>{lab}</td><td>{v['kappa']:.3f}</td><td>{v['macro_f1']:.3f}</td><td>{v['rappel_detracteur']:.2f}</td></tr>"
     slide("CRISP-DM · 4 · modélisation — bonus", "Énoncé § 4.4 verbatims, § 4.5 foundation models — « do not frame it as the winner if it is not »", "Deux bonus explorés honnêtement : le modèle de fondation ne gagne pas, le texte synthétique ne prouve rien",
-          "TabICL évalué, TabPFN indisponible ; 7 043 verbatims générés et fusionnés", f"""
+          "TabICL et TabPFN v2 évalués sur poids publics ; TabPFN 2.5 bloqué par une licence, pas par un dépôt fermé", f"""
 <div class="corps"><div class="txt" style="flex:0 0 55%"><b>Modèles de fondation tabulaires</b><table><tr><th>Modèle</th><th>Kappa</th><th>Macro-F1</th><th>Rappel Passif</th><th>Inférence</th><th>Verdict</th></tr>{fo_rows}</table>
-<div class="note">Avantages : aucun réglage, performance d'emblée. Limites : inférence 2–3 ordres de grandeur plus lente, pas d'explication native, poids externes (TabPFN : accès contrôlé), classe Passif écrasée ici. Acceptable pour un scoring mensuel, pas pour l'application interactive.</div></div>
+<div class="note"><b>Avantages</b> : aucun réglage, performance d'emblée — un excellent étalon de première heure. <b>Limites</b>, et la première n'est pas la latence : <b>la classe Passif est abandonnée</b> (rappel ~0), ce que le kappa quadratique pénalise peu ; la comparaison n'est pas à protocole égal (aucun des deux n'accepte la pondération de classes utilisée par les 15 autres modèles) ; inférence 2–3 ordres de grandeur plus lente ; aucune explication native. <b>Compromis chiffré face au meilleur gradient boosting</b> dans l'étude, phase 4 § 8. Acceptable pour un scoring mensuel, pas pour l'application interactive.</div></div>
 <div class="txt"><b>Verbatims synthétiques et fusion texte</b><table><tr><th>Configuration</th><th>Kappa</th><th>Macro-F1</th><th>Rappel Dét.</th></tr>{tx_rows}</table>
 <div class="warn">{tx['n_verbatims'] if tx else ''} notes générées (générateur local seedé, fragments LLM ; chemin API Anthropic prêt, prompt versionné), tonalité tirée de la classe avec 25 % de bruit. Le texte <b>encode la classe par construction</b> : tout gain est un artefact. La chaîne fonctionne ; <b>pas de composante texte en production</b> sur cette base — le « spot when the added complexity is not worth it » de l'énoncé.</div></div></div>""", 17)
 
     # 18 — application
     slide("CRISP-DM · 6 · déploiement", "Énoncé § 4.8 — persistence, simple productization", "Un outil pour l'équipe rétention : liste priorisée, explication et levier pour chaque client",
-          "Application Streamlit, 7 pages, tolérante aux entrées inconnues, chaque valeur lue dans les artefacts du pipeline", f"""
+          "Application Streamlit, 8 pages filtrables, livrée en image Docker, chaque valeur lue dans les artefacts du pipeline", f"""
 <div class="corps"><div class="fig" style="flex:0 0 58%"><img src="{_b64(cap / '03_analyser_un_client.png')}" style="max-height:120mm;border:1px solid #d5dbe1;border-radius:2mm"></div>
 <div class="txt"><ul><li><b>Prioriser</b> : silencieux classés par P(Détracteur), filtres, capacité K, pondération CLTV (couche de décision), levier, export CSV.</li>
 <li><b>Analyser</b> : client existant ou saisie manuelle — « (inconnu) » accepté partout, le pipeline impute et <code>handle_unknown='ignore'</code> absorbe toute modalité nouvelle (testé). Classe, probabilités, contributions de <i>ce</i> client, levier, contexte du segment, verbatim collé (démonstration).</li>
@@ -528,10 +547,10 @@ def diapos(cfg, R, F, arb) -> str:
 
     # 19 — monitoring
     su = (mo or {}).get("suivi_nouvelles_reponses", {})
-    slide("CRISP-DM · 6 · déploiement", "Énoncé § 4.9 — monitoring, retraining trigger, feedback loop", "Monitoring implémenté : dérive, performance sur les nouvelles réponses, quatre déclencheurs",
+    slide("CRISP-DM · 6 · déploiement", "Énoncé § 4.9 — monitoring, retraining trigger, feedback loop", "Monitoring implémenté : dérive, performance sur les nouvelles réponses, cinq déclencheurs dont l'équité suivie mois par mois",
           "Et la boucle de rétroaction, qui rendrait le modèle pire que rien si on l'ignorait", fig_txt(F.get("monitoring", F["robustesse"]), f"""
 <ul><li><b>Dérive des entrées</b> (PSI par variable) et <b>des prédictions</b> : sur un mois simulé (tarif +12 %, 15 % vers le mensuel, 10 % vers la fibre), alerte sur {', '.join((mo or {}).get('variables_en_alerte_mois_simule', [])[:2])} → réentraînement déclenché.</li>
-<li><b>Performance réelle</b> sur les nouvelles réponses d'enquête (~150/mois) : chute de kappa > {su.get('seuils', {}).get('chute_kappa', 0.05)} ou de rappel > {su.get('seuils', {}).get('chute_rappel_detracteur', 0.1)} ; <b>volume</b> ≥ {su.get('seuils', {}).get('min_nouveaux_labels', 500)} labels (mois {su.get('premier_mois_volume_atteint', '—')}) ; <b>échéance</b> 6 mois ; recalibration dès 300 labels ; équité par âge > 15 pts.</li>
+<li><b>Performance réelle</b> sur les nouvelles réponses d'enquête (~150/mois) : chute de kappa > {su.get('seuils', {}).get('chute_kappa', 0.05)} ou de rappel > {su.get('seuils', {}).get('chute_rappel_detracteur', 0.1)} ; <b>volume</b> ≥ {su.get('seuils', {}).get('min_nouveaux_labels', 500)} labels (mois {su.get('premier_mois_volume_atteint', '—')}) ; <b>échéance</b> 6 mois ; recalibration dès 300 labels ; équité par âge : rappel Détracteur recalculé par tranche d'âge sur le cumul, alerte au-delà de 10 pts — le seuil de la phase 1, désormais le même partout.</li>
 <li><b>Boucle de rétroaction</b> : un détracteur appelé puis retenu change de classe — réentraîner dessus apprend au modèle l'effet de sa propre intervention. Parades : journaliser chaque contact, groupe de contrôle, réentraîner sur non-contactés et contrôles.</li></ul>"""), 19)
 
     # 20 — limites et décision
@@ -541,7 +560,7 @@ def diapos(cfg, R, F, arb) -> str:
 <tr><td><b>Implémenté</b></td><td>tout le périmètre obligatoire (§ 4.1–4.8), le monitoring (§ 4.9), les trois bonus</td></tr>
 <tr><td><b>Approximatif, dit tel quel</b></td><td>paramètres économiques placeholders ; propension à répondre simulée ; verbatims locaux (pas d'API) ; NPS des silencieux sous-estimé de {ns['nps_silencieux_vrai'] - ns['nps_silencieux_predit']:.0f} pts</td></tr>
 <tr><td><b>Impossible avec ces données</b></td><td>estimer l'effet d'un appel : aucune campagne, aucune assignation aléatoire — la table Offer prouve que les offres ont été ciblées</td></tr>
-<tr><td><b>Travail futur</b></td><td>TabPFN dès accès ; recalibration sur vraies réponses ; uplift après groupe de contrôle ; API CRM ; vrais verbatims</td></tr></table></div>
+<tr><td><b>Travail futur</b></td><td>TabPFN 2.5 dès acceptation de la licence PriorLabs ; recalibration sur vraies réponses ; uplift après groupe de contrôle ; API CRM ; vrais verbatims</td></tr></table></div>
 <div class="txt"><div class="bad" style="margin-top:0"><b>La décision demandée.</b> Ascarza (2018, <i>J. Marketing Research</i>) : cibler les clients au risque le plus élevé est inefficace ; il faut cibler ceux dont le comportement change quand on les appelle — même budget, jusqu'à 7 pts de churn en moins. Les détracteurs les plus certains sont souvent des <i>perdus d'avance</i>.<br><br>
 <b>À la prochaine campagne, ne pas contacter 10 à 20 % des clients ciblés, tirés au hasard.</b> Ce groupe de contrôle achète la mesure de l'effet réel de la campagne et les données d'un modèle d'uplift — passer du ciblage par risque au ciblage par sensibilité.</div>
 <div class="note">C'est le seul passage de l'étude qui demande une décision plutôt que de présenter un résultat.</div></div></div>""", 20)
@@ -556,7 +575,7 @@ def diapos(cfg, R, F, arb) -> str:
           "Reproductible à l'identique ; usage d'IA déclaré ; aucune clé dans le dépôt", f"""
 <div class="corps"><div class="txt" style="flex:0 0 58%"><table class="check">{rows}</table></div>
 <div class="txt"><div class="kpis" style="margin:0 0 4mm;flex-direction:column"><div class="kpi"><div class="lab">Test à blanc depuis copie vierge</div><div class="val">{len(rp['comparaison']) if rp else '—'}/{len(rp['comparaison']) if rp else '—'}</div><div class="sub">indicateurs identiques (NPS, modèle retenu, kappa, précision@K, équité…)</div></div>
-<div class="kpi"><div class="lab">Tests automatisés</div><div class="val">39</div><div class="sub">jointure, fuites, cible, protocole, 15 modèles clonables, sélection, robustesse de l'app</div></div></div>
+<div class="kpi"><div class="lab">Tests automatisés</div><div class="val">{n_tests}</div><div class="sub">jointure, fuites, cible, protocole, 15 modèles clonables, sélection, exécution réelle des 8 pages de l'app</div></div></div>
 <div class="note"><b>Usage d'IA</b> (§ 7) : code, structure de l'étude et rédaction produits avec l'assistance d'un assistant IA (Claude), sous direction et relecture humaines ; fragments des verbatims synthétiques rédigés par ce même assistant. Choix de modélisation, périmètre et conclusions assumés par l'auteur.</div></div></div>""", 21)
 
     # 22 — à retenir
@@ -567,7 +586,7 @@ def diapos(cfg, R, F, arb) -> str:
 <div class="kpi"><div class="lab">4 · L'équité</div><div class="val">{eq['tranche_age']['ecart_max']*100:.0f} pts</div><div class="sub">d'écart par âge, cause mesurée (proxies), mitigation chiffrée, remontée</div></div>
 <div class="kpi"><div class="lab">5 · La décision</div><div class="val">10–20 %</div><div class="sub">de groupe de contrôle : mesurer l'effet, préparer l'uplift</div></div></div>
 <div class="note" style="font-size:12.5pt">Ce que les quinze modèles disent ensemble : le plafond de performance est dans le signal — ~1 000 répondants biaisés et une cible bruitée — pas dans l'algorithme. La prochaine marche n'est pas un modèle de plus : ce sont de vraies réponses de la population cible, un journal des contacts et un groupe de contrôle.</div>
-<div class="warn" style="font-size:12.5pt">Limites assumées : hypothèses économiques à valider ; propension simulée ; taux de réponse 15 % optimiste (2,6 % chez Kannan et al.) ; NPS agrégé des silencieux sous-estimé ; verbatims synthétiques ; TabPFN non évalué faute d'accès.</div>
+<div class="warn" style="font-size:12.5pt">Limites assumées : hypothèses économiques à valider ; propension simulée ; taux de réponse 15 % optimiste (2,6 % chez Kannan et al.) ; NPS agrégé des silencieux sous-estimé ; verbatims synthétiques ; TabPFN 2.5 non évalué faute d'acceptation de licence (TabICL et TabPFN v2 l'ont été).</div>
 <div class="note" style="font-size:12.5pt;margin-top:5mm">Merci. Application : <code>streamlit run app/app.py</code> · Étude : <code>reports/</code> (8 documents) · Write-up : <code>livrable/write_up.pdf</code> · Conformité : <code>reports/07_conformite_enonce.md</code></div>""", 22)
 
     return f"<!doctype html><html><head><meta charset='utf-8'><style>{CSS}</style></head><body>{''.join(S)}</body></html>"
@@ -577,6 +596,7 @@ def diapos(cfg, R, F, arb) -> str:
 # NOTES D'ORAL
 # =============================================================================
 def notes(cfg, R, arb) -> str:
+    n_tests = _n_tests()
     mf = R["modele_final"]; m = mf["metriques_retenues"]; sel = R["selection_modele_final"]; pk = R["evaluation_metier"]["precision_at_k"]
     ns = R["nps_simule"]; eq = R["audit_equite"]["tranche_age"]; px = R["audit_proxies"]
     cl = pd.DataFrame(sel["classement"]); ret = cl[cl.modele == sel["retenu"]].iloc[0]
@@ -590,7 +610,7 @@ Repères de temps cumulés entre crochets.
 |---|---|---|---|---|
 | 1 | Titre | [0:00] | Le sujet : décider pour les 85 % de clients dont on ignore la satisfaction. | 85 % |
 | 2 | Le problème | [0:45] | Trois usages métier, trois critères chiffrés avant le code ; cible ordonnée et déséquilibrée. | K = {pk['k']} appels/mois |
-| 3 | Démarche CRISP-DM | [1:45] | Six phases, chacune fermée par des décisions justifiées ; tout est vérifiable dans l'étude. | 8 documents, 39 tests |
+| 3 | Démarche CRISP-DM | [1:45] | Six phases, chacune fermée par des décisions justifiées ; tout est vérifiable dans l'étude. | 8 documents, {n_tests} fonctions de test |
 | 4 | Les fuites | [2:45] | Le dataset contient sa propre réponse : satisfaction 1–2 → 100 % de départs. Trois natures de fuite, exclusion mesurée. | exactitude max {R['diagnostic_fuite']['exactitude_max_observee']:.2f} < 0,85 |
 | 5 | La cible | [4:00] | La grille de l'énoncé donne {arb['nps']['M1']:+.0f} ; les « 3 » arbitrés par un modèle sur les extrêmes penchent promoteur à {arb['part_3_vers_promoteur']:.0%} → NPS {arb['nps']['M3']:+.0f}. Piège de circularité évité. | {arb['n_ambigus']} clients « 3 » |
 | 6 | Features et déséquilibre | [5:15] | Chaque variable a une hypothèse ; double déséquilibre (Passif rare à l'entraînement, majoritaire à l'évaluation) ; pondération choisie après 5 stratégies. | Passif : {R['desequilibre']['distribution_repondants']['Passif']:.0%} des répondants |
@@ -605,8 +625,8 @@ Repères de temps cumulés entre crochets.
 | 15 | Équité | [14:45] | Écart de {eq['ecart_max']*100:.0f} pts par âge sans variable d'âge : les features reconstruisent l'âge (AUC {px.get('Moins de 30 ans', {}).get('auc', 0):.2f}). Mitigation chiffrée, décision remontée. | AUC {px.get('Marié(e)', {}).get('auc', 0):.2f} pour « marié » |
 | 16 | Robustesse | [16:00] | Bruit d'étiquettes graduel ; chaque bloc de features a un coût mesuré. | Contract : le bloc clé |
 | 17 | Bonus | [16:45] | TabICL ne gagne pas et coûte 3 ordres de grandeur ; le texte synthétique encode la classe : ne prouve rien. | « not the winner » |
-| 18 | Application | [17:30] | Prioriser, analyser, comprendre, surveiller ; tolérante aux inconnus ; tout lu dans les artefacts. | 7 pages |
-| 19 | Monitoring | [18:15] | PSI, performance sur nouvelles réponses, quatre déclencheurs, boucle de rétroaction. | 500 labels → réentraîner |
+| 18 | Application | [17:30] | Explorer par filtres croisés, prioriser, analyser, comprendre, surveiller ; tolérante aux inconnus ; tout lu dans les artefacts ; `docker compose up` suffit à la lancer. | 8 pages, Docker |
+| 19 | Monitoring | [18:15] | PSI, performance sur nouvelles réponses, cinq déclencheurs dont l'écart d'équité par âge recalculé chaque mois, boucle de rétroaction. | 500 labels → réentraîner |
 | 20 | Limites et décision | [19:00] | Ce qu'on ne peut pas faire (effet d'un appel) ; la seule décision demandée : groupe de contrôle. | 10–20 % |
 | 21 | Conformité | [19:40] | Chaque exigence → réponse → emplacement ; reproductible ; IA déclarée. | 10/10 identiques |
 | 22 | À retenir | [20:00] | Cinq chiffres, une phrase : le plafond est dans le signal, pas dans l'algorithme. | — |
@@ -677,9 +697,18 @@ Repères de temps cumulés entre crochets.
     du protocole. La chaîne est démontrée ; sa valeur réelle ne peut se mesurer que sur de vrais verbatims.
 
 15. **TabICL fait presque aussi bien sans réglage : pourquoi ne pas le retenir ?**
-    Il ne bat pas le modèle retenu, il écrase la classe Passif, il coûte trois ordres de grandeur en inférence et n'a pas
-    d'explication native. La consigne de l'énoncé : « do not frame it as the winner if it is not ». TabPFN n'a pas pu être
-    évalué (accès aux poids).
+    Parce que le kappa cache l'essentiel. TabICL **écrase la classe Passif** — rappel nul : il se comporte en classifieur
+    binaire Détracteur / Promoteur, et le kappa quadratique pénalise peu une erreur d'un cran. Son macro-F1 est donc très
+    en dessous. Ajoutez que la comparaison lui est défavorable à un autre titre : ni TabICL ni TabPFN n'acceptent la
+    pondération de classes appliquée aux quinze autres modèles, donc la classe minoritaire part perdante chez eux par
+    construction — je le dis parce que cela joue en ma faveur et qu'il faut le signaler quand même. Enfin, trois ordres de
+    grandeur en inférence et aucune explication native, alors que l'explication client par client est au cœur du livrable.
+    La consigne de l'énoncé : « do not frame it as the winner if it is not ».
+
+    *Sur TabPFN* : la version 2.5 n'a pas pu être évaluée, mais pas pour la raison qu'on croit. Son dépôt Hugging Face est
+    **public** ; ce qui bloque est l'acceptation d'une licence PriorLabs, qui demande un compte et une clé API. J'ai donc
+    évalué **TabPFN v2**, dont les poids sont librement téléchargeables, en les chargeant explicitement. Le bonus est traité,
+    et le blocage est décrit pour ce qu'il est.
 
 16. **Quel est le vrai levier d'amélioration ?**
     Pas un modèle de plus. Un groupe de contrôle (10–20 %) à la prochaine campagne : il mesure l'effet réel et fournit les
@@ -687,7 +716,7 @@ Repères de temps cumulés entre crochets.
 
 17. **Qu'avez-vous fait avec l'IA générative ?**
     Code, structure de l'étude, rédaction, fragments des verbatims — déclaré comme l'énoncé le demande (§ 7). Les choix de
-    modélisation, le périmètre et les conclusions sont les miens ; les 39 tests et le test à blanc vérifient ce qui est livré.
+    modélisation, le périmètre et les conclusions sont les miens ; les {n_tests} fonctions de test et le test à blanc vérifient ce qui est livré.
 
 ## Si le jury n'a que dix minutes
 

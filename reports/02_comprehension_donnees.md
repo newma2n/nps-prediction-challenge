@@ -13,11 +13,20 @@ clients sont restés ; (2) le dataset **contient sa propre réponse** — satisf
 | demographics | 7 043 × 9 | Customer ID | genre, âge, situation familiale |
 | location | 7 043 × 9 | Customer ID | ville, code postal, coordonnées |
 | population | 1 671 × 3 | Zip Code | population du code postal |
-| services | 7 043 × 30 | Customer ID | contrat, services, facturation, parrainage, **Satisfaction Score** |
-| status | 7 043 × 11 | Customer ID | churn (label, valeur, score, catégorie, raison), CLTV |
+| services | 7 043 × 30 | Customer ID | contrat, services, facturation, parrainage |
+| status | 7 043 × 11 | Customer ID | **Satisfaction Score**, statut client, churn (label, valeur, score, catégorie, raison), CLTV |
 
-Jointure interne sur `Customer ID`, `population` rattachée par `Zip Code`. Porte de contrôle :
-**7043 lignes** après jointure, 0 doublon d'identifiant (test automatisé).
+Jointure **gauche** à partir de `demographics`, `population` rattachée par `Zip Code`. Deux portes
+de contrôle, pas une : **7043 lignes** après jointure et 0 doublon d'identifiant
+(aucune ligne perdue ni dupliquée), puis une vérification qu'aucun client n'arrive sans ligne de
+services, de statut ou de localisation. Une jointure interne masquerait ce second cas en supprimant
+silencieusement les clients incomplets ; ici, un client incomplet fait échouer le pipeline.
+
+⚠️ **La variable cible vit dans la même table que le churn.** `Satisfaction Score` est livré par IBM
+dans `status`, aux côtés de `Churn Label`, `Churn Value`, `Churn Score`, `Customer Status` et `CLTV`,
+et pour le même trimestre. Ce n'est pas un détail d'intendance : c'est le premier argument du
+registre de fuites (§ 4). Toutes les colonnes qui accompagnent la cible dans cette table ont été
+construites en même temps qu'elle, et aucune n'est disponible au moment où l'on voudrait prédire.
 
 ## 2. Dictionnaire des données
 
@@ -128,6 +137,20 @@ Satisfaction 1–2 → **100 % de départs** ; 4–5 → **0 %**. Connaître le 
 cible. Or au moment où l'on veut détecter un détracteur, il n'est pas encore parti : l'information
 n'existe pas. Toute colonne liée au churn est donc une fuite — et une fuite de trois natures :
 
+> **Ce que cette séparation parfaite dit vraiment.** L'énoncé présente la satisfaction comme *« a
+> real human-provided signal inside the dataset, not a fabricated label »*. Une relation
+> déterministe parfaite entre une note d'enquête et un départ — aucun client noté 4–5 parti, aucun
+> client noté 1–2 resté — **n'existe dans aucune enquête réelle** : il y a toujours des clients
+> satisfaits qui partent pour un déménagement ou un prix, et des mécontents qui restent par inertie.
+> Le plus probable est donc que, dans cet échantillon IBM, la note ait été rendue cohérente avec le
+> statut de churn au moment de la génération. Nous ne pouvons pas le prouver, et c'est précisément
+> pour cela qu'il faut l'écrire. Deux conséquences, toutes deux tenues dans la suite de l'étude :
+> **(a)** l'exclusion des colonnes de churn n'est pas une précaution parmi d'autres, c'est la
+> condition pour que le travail ait un sens ; **(b)** les performances mesurées ici sont une
+> **borne haute** — sur de vraies réponses, plus bruitées, il faut s'attendre à une dégradation de
+> l'ordre de celle que mesure le test de bruit d'étiquettes (phase 5 § 5.2). La discussion complète
+> de cette limite est en phase 3 § 1.6.
+
 | Nature | Définition | Colonnes | Décision |
 |---|---|---|---|
 | **Conséquence** | la colonne est un effet de la cible | `Churn Label`, `Churn Value`, `Customer Status` | exclues |
@@ -195,8 +218,7 @@ que les features retenues révèlent malgré tout de ces attributs en phase 5 §
 La note 3 pèse **2665 clients, 37.8% de la base**, et 2236 d'entre eux (84%) sont toujours clients.
 Où les placer dans la grille NPS décide de tout le reste (phase 3 § 1).
 
-**5.2 Numériques par niveau de satisfaction.** L'ancienneté et le nombre de parrainages croissent
-nettement avec la satisfaction ; la charge mensuelle varie peu.
+**5.2 Numériques par niveau de satisfaction.** Écarts de médiane entre les notes basses (1–2) et hautes (4–5) : **Tenure in Months** passe d'une médiane de 10 chez les notes 1–2 à 35 chez les 4–5 ; **Avg Monthly GB Download** passe d'une médiane de 19 chez les notes 1–2 à 14 chez les 4–5 ; **Monthly Charge** passe d'une médiane de 80 chez les notes 1–2 à 59 chez les 4–5. Les variables de relation — ancienneté, parrainage — séparent bien mieux les extrêmes que les variables de consommation, ce qui oriente la sélection de features (phase 3 § 3).
 
 ![](figures/02_eda_numeriques.png)
 
@@ -232,13 +254,27 @@ effet causal dans des données observationnelles ; ce constat fonde les limites 
 ## 6. Enrichissement externe : décision
 
 L'énoncé autorise des sources externes (recensement par code postal, benchmarks télécom) à condition
-d'en justifier la pertinence métier. **Décision : aucune.** Deux raisons. (1) Le dataset contient déjà
-la seule variable de contexte géographique disponible à la maille du client (`Population` du code
-postal), et elle est exclue du modèle au titre de l'équité — ajouter des revenus médians par code
-postal reviendrait à réintroduire par la fenêtre le proxy socio-économique qu'on a sorti par la porte
-(énoncé § 4.7). (2) Le dataset est fictif : un enrichissement réel sur des coordonnées californiennes
-fictives n'aurait aucune validité. Les **benchmarks NPS télécom** publiés sont en revanche utilisés
-comme corroboration externe de la construction de la cible (phase 3 § 1).
+d'en justifier la pertinence métier. **Décision : aucune.** Deux raisons, et la seconde a été reformulée parce que la première version
+était fausse.
+
+**(1) Le proxy qu'on vient d'exclure reviendrait par la fenêtre.** Le dataset contient déjà une
+variable de contexte socio-démographique externe, jointe à la maille du **code postal** et non du
+client (`Population`), et elle est exclue du modèle au titre de l'équité. Ajouter des revenus médians
+par code postal reviendrait à réintroduire le proxy socio-économique qu'on a sorti par la porte
+(énoncé § 4.7).
+
+**(2) La géographie est réelle, mais l'affectation des clients ne l'est pas.** Les codes postaux, les
+villes et les populations sont d'authentiques données californiennes (90022 Los Angeles, 94112 San
+Francisco, 95405 Santa Rosa), et l'énoncé suggère précisément un enrichissement Census sur ces codes
+postaux : techniquement, c'est faisable. Ce qui est fabriqué, c'est **l'attribution de chaque client
+fictif à un code postal**, produite par le générateur d'IBM. Un modèle qui apprendrait sur un revenu
+médian par code postal apprendrait donc ce générateur, pas un comportement de marché — et ne se
+transposerait pas à l'opérateur panafricain du cadrage. *(La rédaction précédente disait « coordonnées
+californiennes fictives » : c'était inexact, la géographie est réelle et cette imprécision affaiblissait
+un argument qui tient sans elle.)*
+
+Les **benchmarks NPS télécom** publiés sont en revanche utilisés comme corroboration externe de la
+construction de la cible, avec leurs sources et leurs réserves (phase 3 § 1.1).
 
 ## Décisions prises dans cette phase
 

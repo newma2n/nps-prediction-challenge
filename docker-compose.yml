@@ -1,0 +1,70 @@
+# ==============================================================================
+# Lancement en une commande.
+#
+#   docker compose up --build        → http://localhost:8501
+#   docker compose down              → arrêt
+#
+# Rejouer toute l'étude depuis les fichiers bruts (les cinq classeurs IBM doivent
+# être dans ./data/raw, voir la section « Données sources » du README) :
+#
+#   docker compose --profile pipeline run --rm pipeline
+#
+# Les résultats régénérés sont écrits dans ./models, ./data/processed et ./reports
+# de la machine hôte, grâce aux montages ci-dessous ; il suffit ensuite de
+# redémarrer le service `app` pour les voir.
+# ==============================================================================
+services:
+  app:
+    build:
+      context: .
+      target: app
+    image: nps-retention:app
+    container_name: nps-app
+    ports:
+      # Publié sur la boucle locale : l'application n'est pas exposée au réseau, et c'est aussi la
+      # forme que le renvoi de port de WSL enregistre de façon fiable. Pour servir depuis une
+      # machine distante, remplacer par "8501:8501".
+      - "127.0.0.1:8501:8501"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8501/_stcore/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    # Rien à monter : l'image embarque le modèle, le jeu de données dérivé et les
+    # rapports. L'examinateur n'a donc besoin d'aucune donnée pour voir l'outil.
+
+  pipeline:
+    profiles: ["pipeline"]
+    build:
+      context: .
+      target: pipeline
+    image: nps-retention:pipeline
+    container_name: nps-pipeline
+    # Les fichiers bruts viennent de l'hôte (jamais versionnés) ; les sorties y retournent.
+    volumes:
+      - ./data/raw:/app/data/raw:ro
+      - ./data/processed:/app/data/processed
+      - ./data/interim:/app/data/interim
+      - ./models:/app/models
+      - ./reports:/app/reports
+      - ./livrable:/app/livrable
+      - ./notebooks:/app/notebooks
+    command: ["python", "-m", "src.run"]
+
+  # Les tests d'invariants, dans l'image du pipeline : mêmes versions, mêmes artefacts.
+  #   docker compose --profile pipeline run --rm pytest
+  pytest:
+    profiles: ["pipeline"]
+    build:
+      context: .
+      target: pipeline
+    image: nps-retention:pipeline
+    container_name: nps-pytest
+    volumes:
+      - ./data/raw:/app/data/raw:ro
+      - ./data/processed:/app/data/processed:ro
+      - ./models:/app/models:ro
+      - ./reports:/app/reports:ro
+    command: ["python", "-m", "pytest", "tests", "-q"]

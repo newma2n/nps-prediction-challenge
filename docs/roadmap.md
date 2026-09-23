@@ -5,27 +5,28 @@ Pour chaque étape : l'objectif, ce qu'on fait, les outils et pourquoi ceux-là,
 critère qui dit que c'est fini.
 
 Documents liés : `comprehension_du_probleme.md` (le métier), `etat_de_l_art.md` (les quatre
-études et ce qu'elles imposent), `brief/enonce_challenge_nps.pdf` (l'énoncé).
+études et ce qu'elles imposent).
 
 ---
 
-## État d'avancement au 17/09 (révision 2 — livraison)
+## État d'avancement au 23/09 (révision 3 — livraison conteneurisée)
 
 | Étapes | Phase | Statut | Où |
 |---|---|---|---|
 | 1 – 3 | Business understanding | ✅ | `reports/01_comprehension_metier.md` |
 | 4 – 8 | Data understanding | ✅ | `reports/02_comprehension_donnees.md` ; `notebooks/01_exploration_et_cible.ipynb` |
 | 9 – 12, 14 – 15 | Data preparation | ✅ — cible arbitrée, 9 dérivées justifiées, déséquilibre comparé (5 stratégies) | `reports/03_preparation_donnees.md` |
-| 13 | Verbatims synthétiques | ⚠️ fait **sans API** — générateur local seedé, chemin API prêt | `src/verbatims.py`, `prompts/verbatim_v1.txt` |
+| 13 | Verbatims synthétiques | ⚠️ **mixte et tracé** : 1 033 textes rédigés par des agents Claude (prompt versionné, textes commités), le reste par gabarit seedé ; la source de chaque texte figure dans le fichier livré | `src/verbatims.py`, `prompts/verbatim_v1.txt`, `data/interim/verbatims_lots/` |
 | 16 – 19, 21 – 24 | Modeling | ✅ — **15 modèles, 7 familles**, 3 formulations ; sélection par CV sur les répondants (IPW) + parcimonie, sans regarder le test | `reports/04_modelisation.md` |
-| 20 | Modèles de fondation | ✅ **TabICL évalué** ; ⛔ TabPFN bloqué (dépôt Hugging Face à accès contrôlé) | `src/fondation_eval.py` |
+| 20 | Modèles de fondation | ✅ **TabICL et TabPFN v2 évalués** sur poids publics ; ⛔ TabPFN 2.5 bloqué par la licence PriorLabs (compte + clé API), le dépôt de poids étant lui-même public | `src/fondation_eval.py`, `reports/fondation.json` |
 | 25 – 32 | Evaluation | ✅ — + NPS simulé des silencieux, bruit d'étiquettes, ablation, drivers par segment, proxies, mitigation | `reports/05_evaluation.md` |
-| 33 – 34 | Persistance, Streamlit | ✅ — 7 pages, contenu curé | `models/`, `app/app.py` |
-| 35 | Captures | ✅ — 7 captures Selenium | `reports/captures/` |
-| 36 | Monitoring | ✅ — PSI, mois simulé, **performance sur nouvelles réponses**, 4 déclencheurs | `src/monitoring.py` |
+| 33 – 34 | Persistance, Streamlit | ✅ — 8 pages, filtres croisés, contenu curé | `models/`, `app/app.py` |
+| 35 | Captures | ✅ — 8 captures Selenium, prises depuis le conteneur | `reports/captures/` |
+| 36 | Monitoring | ✅ — PSI, mois simulé, **performance sur nouvelles réponses**, **équité suivie en cumul**, 5 déclencheurs publiés avec leur état | `src/monitoring.py`, `reports/monitoring.json` |
 | 37 | Write-up | ✅ — write-up 3–6 pages + étude complète en annexe | `livrable/write_up.pdf`, `livrable/etude_complete.pdf` |
-| 38 | Reproductibilité | ✅ tests (`pytest`, 40+) + test à blanc depuis copie vierge | `tests/`, `reports/reproductibilite.json` |
-| — | Conformité à l'énoncé | ✅ matrice exigence → réponse → emplacement | `reports/07_conformite_enonce.md` |
+| 38 | Reproductibilité | ✅ tests (`pytest` : 30 fonctions, 52 cas exécutés, dont l'exécution réelle des huit pages de l'application) + test à blanc depuis copie vierge + **image Docker** qui fige l'environnement | `tests/`, `reports/reproductibilite.json`, `Dockerfile` |
+| — | Livraison | ✅ `docker compose up` → l'application, sans installation ni donnée ni clé ; second étage pour rejouer tout le calcul | `Dockerfile`, `docker-compose.yml` |
+| — | Conformité à l'énoncé | ✅ matrice exigence → réponse → emplacement, 38 lignes | `reports/07_conformite_enonce.md` |
 
 Écarts avec le plan initial : la comparaison « de second rang » LightGBM/CatBoost/XGBoost est devenue un
 catalogue complet de quinze modèles (demande du client) ; le notebook EDA est livré.
@@ -624,7 +625,11 @@ Mesure du temps d'inférence et de l'empreinte mémoire.
 **Limites à documenter sans complaisance** — latence à l'inférence, pas d'interprétabilité native
 (donc SHAP par permutation, coûteux), coût en production.
 
-**Sortie** — `reports/tabpfn.md`.
+**Sortie** — `reports/fondation.json` (mesures brutes) et la section « Modèles de fondation
+tabulaires » de [reports/04_modelisation.md](../reports/04_modelisation.md) § 8, reprise dans
+l'onglet « Modèles » de l'application. *(Le plan initial prévoyait un `reports/tabpfn.md` séparé ;
+la comparaison n'ayant de sens qu'à côté des quinze autres modèles, elle a été intégrée au document
+de modélisation plutôt que isolée.)*
 
 **Fin d'étape** — avantages **et** limites documentés, conclusion assumée même si négative.
 
@@ -899,7 +904,11 @@ inacceptable, même à accuracy globale élevée.
 **Outils** — `fairlearn.metrics.MetricFrame` : calcule n'importe quelle métrique ventilée par
 groupe avec les écarts min/max ; c'est l'outil que l'énoncé cite.
 
-**Sortie** — `docs/audit_equite.md`.
+**Sortie** — la section « Équité » de [reports/05_evaluation.md](../reports/05_evaluation.md), les
+clés `audit_equite`, `audit_proxies` et `mitigation_seuils_age` de `reports/resultats.json`, et la
+page « Équité » de l'application. *(Le plan initial prévoyait un `docs/audit_equite.md` séparé ;
+l'audit a été placé dans le document d'évaluation pour rester lisible à côté des métriques qu'il
+qualifie.)*
 
 **Fin d'étape** — l'arbitrage équité / performance est **chiffré**.
 
@@ -1082,11 +1091,22 @@ prediction. »* Un projet brillant non reproductible est un projet refusé.
    rédigé avec un LLM.
 4. **Test à blanc** : cloner dans un répertoire vierge, installer, exécuter le pipeline complet,
    vérifier que les chiffres du write-up sont reproduits à l'identique.
-5. Relecture finale : cohérence entre code, rapports et write-up.
+5. **Conteneurisation** — ajoutée en cours de projet, et c'est la réponse la plus forte à
+   l'exigence du § 7. « Someone else should be able to re-run your pipeline » suppose que cette
+   personne installe d'abord l'environnement : quinze modèles, une contrainte `numpy < 2`, des
+   versions de XGBoost et de SHAP qui doivent s'accorder. Un `docker compose up` supprime cette
+   étape et fige l'environnement en même temps que le code. Deux étages : une image de livraison
+   (~0,8 Go) qui contient l'application, le modèle et les données dérivées — de quoi tout voir
+   sans aucun fichier brut ni clé ; une image de calcul qui rejoue le pipeline et les tests.
+6. Relecture finale : cohérence entre code, rapports et write-up.
 
-**Outils** — Git, pip, l'orchestrateur `python -m src.run`.
+**Outils** — Git, pip, l'orchestrateur `python -m src.run`, Docker et Docker Compose.
 
-**Fin d'étape** — le pipeline complet se rejoue depuis zéro et reproduit les chiffres publiés.
+**Sortie** — `Dockerfile`, `docker-compose.yml`, `docker/requirements-*.txt`, section « Lancer en
+une commande » du README.
+
+**Fin d'étape** — le pipeline complet se rejoue depuis zéro et reproduit les chiffres publiés, et
+l'application démarre sur une machine où seul Docker est installé.
 
 ---
 
@@ -1097,7 +1117,7 @@ prediction. »* Un projet brillant non reproductible est un projet refusé.
 | Élément | Choix | Pourquoi |
 |---|---|---|
 | Langage | Python 3.11 | déjà installé, compatible avec toute la chaîne |
-| Isolation | `venv` + `pip`, versions figées | suffisant ; conda ajouterait du poids sans bénéfice |
+| Isolation | `venv` + `pip`, versions figées, **puis image Docker** | le venv suffit à développer ; le conteneur est ce qui rend la remise exécutable chez l'examinateur sans rien installer (étape 38) |
 | Configuration | `config.yaml` unique (chemins, seed, paramètres) | aucune constante codée en dur dans les scripts |
 | Orchestration | `python -m src.run <etape>` | `make` n'est pas garanti sous Windows ; un point d'entrée Python reste portable |
 | Versionnement | Git, `.gitignore` excluant `data/`, `models/`, `.env` | exigé implicitement par le § 7 |

@@ -1,0 +1,7 @@
+Tu rédiges des notes de dernier contact avec le support client d'un opérateur télécom, pour un jeu de données d'entraînement. Écris UNE note de 1 à 3 phrases, en français, à la première personne ou en résumé d'appel (extrait de chat, résumé du conseiller ou avis laissé dans l'application).
+
+Règles :
+- Respecte la tonalité indiquée (frustré / neutre / enthousiaste) sans exagérer : un client frustré peut rester poli, un client content peut formuler une réserve.
+- Ancre la note dans les faits fournis (contrat, ancienneté, type d'internet, offre reçue, parrainages, facture, support premium, streaming). N'invente aucun fait.
+- Ne mentionne jamais la tonalité, ni une note, ni le mot « satisfaction ». Aucune donnée personnelle (pas de nom, pas de ville).
+- Varie le registre et la longueur. Réponds uniquement par la note, sans guillemets ni préambule.

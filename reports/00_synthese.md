@@ -13,11 +13,11 @@ pour chaque client, les raisons de la prédiction et le levier à proposer ; une
 
 | | |
 |---|---|
-| NPS estimé de la base complète | **+21** (secteur : +19 à +34) — contre **-42** avec la grille de l'énoncé prise au pied de la lettre |
-| NPS des silencieux, estimé par le modèle | **+4** (intervalle +2 à +5) ; les répondants seuls donnent +27 |
+| NPS **réel** de la base sous la grille retenue | **+21** — connu ici parce que la satisfaction des 7 043 clients est dans le jeu de données ; ce n'est **pas** une sortie du modèle. Avec la grille de l'énoncé prise au pied de la lettre : **-42** |
+| NPS des silencieux, **estimé par le modèle** | **+4** (intervalle +2 à +5). La vérité, connue ici seulement, est **+20** : l'estimateur **sous-estime de 17 points** et l'intervalle ne couvre pas ce biais. Les répondants seuls donneraient +27. Ce chiffre se lit **en relatif** — classement des segments — pas en absolu |
 | Sur 500 appels, part de vrais détracteurs | **51%** contre 18% au hasard — **×2.8** |
 | Gain net supplémentaire par campagne | **18 585 €** à hypothèses de coût constantes (à valider) |
-| Détracteurs retrouvés | **63%** — mais 48% seulement chez les moins de 30 ans |
+| Détracteurs retrouvés | **63%** — mais 47% seulement chez les moins de 30 ans |
 
 ## Les trois résultats à retenir
 
@@ -33,7 +33,7 @@ il est évalué**, avec une règle qui préfère le plus simple quand les écart
 logistique ordinale. Évalué dans les conditions réelles : entraîné sur 15 % de répondants dont la composition est
 biaisée (les mécontents et les enthousiastes répondent plus), testé sur les 85 % restants.
 
-**3. Il rate davantage les jeunes détracteurs** : 48% de rappel chez les moins de 30 ans contre 73%
+**3. Il rate davantage les jeunes détracteurs** : 47% de rappel chez les moins de 30 ans contre 73%
 chez les 60 ans et plus — alors qu'aucune variable d'âge n'entre dans le modèle. On a mesuré pourquoi :
 les variables contractuelles **reconstruisent** l'âge. Une correction est chiffrée ; la décision de
 l'appliquer appartient au métier et au juridique, pas au modèle.
@@ -60,8 +60,9 @@ le modèle se dégradera en réapprenant ses propres effets.
 
 Elle n'estime pas l'effet d'un appel (aucune campagne dans les données). Ses verbatims clients sont
 synthétiques et le signal texte, démontré techniquement, n'est pas déployable sur cette base. Ses
-hypothèses économiques sont des paramètres à valider avec l'équipe rétention. TabPFN n'a pas pu être
-évalué (accès aux poids soumis à acceptation) ; TabICL l'a été.
+hypothèses économiques sont des paramètres à valider avec l'équipe rétention. TabPFN 2.5 n'a pas pu
+être évalué — sa licence PriorLabs demande un compte et une clé API — mais TabICL et TabPFN v2 l'ont
+été, sur des poids publics.
 
 ## Lire la suite
 

@@ -81,3 +81,13 @@ metier:
   cout_appel_eur: 12
   valeur_client_retenu_eur: 450
   taux_succes_appel: 0.25
+
+# --- Critères de succès, chiffrés AVANT toute modélisation (étape 1) ----------
+# Fixés a priori pour que la réussite ne se décrète pas après coup. Vérifiés en phase 5
+# et verrouillés par tests/test_pipeline.py.
+criteres_succes:
+  lift_min: 2.0                 # précision@K au moins double du taux de base
+  precision_at_k_min: 0.35      # au moins 35 % de vrais détracteurs parmi les K appelés
+  gain_net_min_eur: 0           # la campagne ciblée doit rapporter plus que la campagne aléatoire
+  rappel_min_par_classe: 0.05   # aucune classe abandonnée
+  ecart_equite_signalement: 0.10  # écart de rappel entre sous-groupes signalé au-delà de 10 points
