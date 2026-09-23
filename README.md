@@ -88,9 +88,21 @@ convient pas.
 
 ## Déployer en ligne
 
-L'application est prête pour Streamlit Community Cloud : fichier principal `app/app.py`, Python 3.11,
-aucun secret. `requirements.txt` ne contient que les dépendances de l'interface, pour rester sous la
-limite de ressources de l'hébergement ; le reste est dans `requirements-pipeline.txt`.
+Sur Streamlit Community Cloud, dans *Advanced settings* au moment du déploiement :
+
+| Champ | Valeur |
+|---|---|
+| Main file path | `app/app.py` |
+| Python version | **3.11** |
+| Secrets | aucun |
+
+⚠️ **La version de Python n'est pas facultative.** Le projet impose `numpy < 2`, et numpy 1.26 n'a
+pas de paquet précompilé au-delà de Python 3.12. Avec 3.13 ou 3.14, l'installation tente de compiler
+pandas depuis les sources et échoue. Si l'application est déjà déployée, la version se change dans
+*Manage app* → *Settings* → *Python version*, puis *Reboot*.
+
+`requirements.txt` ne contient que les dépendances de l'interface, pour rester sous la limite de
+ressources de l'hébergement ; le reste est dans `requirements-pipeline.txt`.
 
 ## Arborescence
 

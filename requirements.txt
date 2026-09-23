@@ -2,6 +2,11 @@
 # et l'image Docker de livraison. Il reste volontairement court : l'application lit des artefacts
 # déjà calculés, elle n'entraîne rien.
 #
+# ⚠️ PYTHON 3.11 OU 3.12 OBLIGATOIRE. numpy doit rester < 2 (pandas 2.1 et shap 0.49 cassent
+# sinon), et numpy 1.26 n'a pas de paquet précompilé au-delà de Python 3.12 : sur 3.13 ou 3.14,
+# l'installation tente une compilation depuis les sources et échoue.
+# Sur Streamlit Community Cloud, choisir 3.11 dans Advanced settings au moment du déploiement.
+#
 # Pour rejouer le calcul (pipeline, étude, PDF, tests) :
 #     pip install -r requirements.txt -r requirements-pipeline.txt
 numpy==1.26.4            # doit rester < 2 : pandas 2.1 et shap 0.49 cassent sinon
